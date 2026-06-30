@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "989071349288",
+    "project_id": "pera-47a76",
+    "storage_bucket": "pera-47a76.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:989071349288:android:84f76385a213003c1ec71d",
+        "android_client_info": {
+          "package_name": "com.pakset.pera"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyALrcG7AVKOc8Lc6W-hv4elQom-8bFAknQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

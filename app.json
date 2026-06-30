@@ -1,0 +1,67 @@
+{
+  "expo": {
+    "name": "PERA",
+    "slug": "PERA-Mobile",
+    "version": "2.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.pakset.pera",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "PERA, söylediklerinizi metne dönüştürmek için konuşma tanıma özelliğini kullanır.",
+        "NSMicrophoneUsageDescription": "PERA, sesli soru sormak için mikrofona erişim gerektiriyor."
+      }
+    },
+    "android": {
+      "package": "com.pakset.pera",
+      "usesCleartextTraffic": true,
+      "versionCode": 20,
+      "googleServicesFile": "./google-services.json",
+      "adaptiveIcon": {
+        "backgroundColor": "#020B14",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "PERA, sesli soru sormak için mikrofona erişim gerektiriyor."
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "PERA, sesli soru sormak için mikrofona erişim gerektiriyor.",
+          "speechRecognitionPermission": "PERA, söylediklerinizi metne dönüştürmek için konuşma tanıma özelliğini kullanır."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#020B14",
+          "defaultChannel": "pera-gorev-kanal"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1ce9e6c6-219e-45f0-a01b-63105ce2776a"
+      }
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"$i=[Console]::In.ReadToEnd()|ConvertFrom-Json; if($i.tool_input.file_path -match '\\.env'){Write-Error 'BLOCKED: .env dosyalari okunamaz/loglanamaz.'; exit 2}\""
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"$i=[Console]::In.ReadToEnd()|ConvertFrom-Json; if($i.tool_input.command -match 'rm\\s+-rf|Remove-Item.*-Recurse.*-Force'){Write-Error 'BLOCKED: rm -rf / Remove-Item -Recurse -Force yasaklandi.'; exit 2}\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"Write-Host 'Hatirlatma: bu degisiklik icin lint/derleme kontrolu yapilmali (proje icin otomatik lint komutu tanimli degil).'\""
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force -Path .claude | Out-Null; Add-Content -Path '.claude/pre_compact_notes.md' -Value (\\\"`n## $(Get-Date -Format yyyy-MM-dd_HH:mm)`nPreCompact tetiklendi - onemli kararlari ozetleyip not et (mac'teki ~/PERA-Orkestrator/memory/decisions_log.md ile manuel senkronize edilebilir).\\\")\""
+          }
+        ]
+      }
+    ]
+  }
+}
