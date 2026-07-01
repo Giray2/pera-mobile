@@ -12,7 +12,6 @@
     "axios": "^1.18.0",
     "expo": "~56.0.13",
     "expo-audio": "^56.0.12",
-    "expo-av": "^16.0.8",
     "expo-dev-client": "~56.0.21",
     "expo-modules-core": "~56.0.18",
     "expo-notifications": "~56.0.19",

@@ -1,7 +1,9 @@
 import { useState, useRef, useCallback } from 'react';
-import { kayitBaslat, kayitBitir, kayitIptal } from '../services/audio';
+import { useAudioRecorder } from 'expo-audio';
+import { KAYIT_AYARLARI, kayitBaslat, kayitBitir, kayitIptal } from '../services/audio';
 
 export function useAudioRecord(onBitti: (uri: string) => void) {
+  const recorder = useAudioRecorder(KAYIT_AYARLARI);
   const [kayitYapiliyor, setKayitYapiliyor] = useState(false);
   const iptalRef = useRef(false);
 
@@ -9,25 +11,25 @@ export function useAudioRecord(onBitti: (uri: string) => void) {
     if (kayitYapiliyor) return;
     iptalRef.current = false;
     try {
-      await kayitBaslat();
+      await kayitBaslat(recorder);
       setKayitYapiliyor(true);
     } catch {
       setKayitYapiliyor(false);
     }
-  }, [kayitYapiliyor]);
+  }, [kayitYapiliyor, recorder]);
 
   const bitir = useCallback(async () => {
     if (!kayitYapiliyor) return;
     setKayitYapiliyor(false);
-    const uri = await kayitBitir();
+    const uri = await kayitBitir(recorder);
     if (uri && !iptalRef.current) onBitti(uri);
-  }, [kayitYapiliyor, onBitti]);
+  }, [kayitYapiliyor, onBitti, recorder]);
 
   const iptal = useCallback(async () => {
     iptalRef.current = true;
     setKayitYapiliyor(false);
-    await kayitIptal();
-  }, []);
+    await kayitIptal(recorder);
+  }, [recorder]);
 
   return { kayitYapiliyor, basla, bitir, iptal };
 }

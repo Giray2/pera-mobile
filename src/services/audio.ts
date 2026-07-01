@@ -1,64 +1,54 @@
-import { Audio } from 'expo-av';
+import { requestRecordingPermissionsAsync, setAudioModeAsync, IOSOutputFormat, AudioQuality } from 'expo-audio';
+import type { AudioRecorder, RecordingOptions } from 'expo-audio';
 
-let recording: Audio.Recording | null = null;
+export const KAYIT_AYARLARI: RecordingOptions = {
+  extension: '.m4a',
+  sampleRate: 16000,
+  numberOfChannels: 1,
+  bitRate: 32000,
+  android: {
+    outputFormat: 'mpeg4',
+    audioEncoder: 'aac',
+  },
+  ios: {
+    outputFormat: IOSOutputFormat.MPEG4AAC,
+    audioQuality: AudioQuality.MEDIUM,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: {},
+};
 
-export async function kayitBaslat(): Promise<void> {
-  await Audio.requestPermissionsAsync();
-  await Audio.setAudioModeAsync({
-    allowsRecordingIOS: true,
-    playsInSilentModeIOS: true,
+// AudioRecorder ornegi expo-audio'da yalnizca useAudioRecorder() hook'u ile
+// olusturulabiliyor (paket disardan sadece tip olarak export ediyor) - bu yuzden
+// recorder instance'i hook tarafinda tutulur, buradaki fonksiyonlar onu parametre alir.
+
+export async function kayitBaslat(recorder: AudioRecorder): Promise<void> {
+  await requestRecordingPermissionsAsync();
+  await setAudioModeAsync({
+    allowsRecording: true,
+    playsInSilentMode: true,
   });
-
-  const { recording: rec } = await Audio.Recording.createAsync({
-    android: {
-      extension: '.m4a',
-      outputFormat: Audio.AndroidOutputFormat.MPEG_4,
-      audioEncoder: Audio.AndroidAudioEncoder.AAC,
-      sampleRate: 16000,
-      numberOfChannels: 1,
-      bitRate: 32000,
-    },
-    ios: {
-      extension: '.m4a',
-      outputFormat: Audio.IOSOutputFormat.MPEG4AAC,
-      audioQuality: Audio.IOSAudioQuality.MEDIUM,
-      sampleRate: 16000,
-      numberOfChannels: 1,
-      bitRate: 32000,
-      linearPCMBitDepth: 16,
-      linearPCMIsBigEndian: false,
-      linearPCMIsFloat: false,
-    },
-    web: {},
-  });
-  recording = rec;
+  await recorder.prepareToRecordAsync();
+  recorder.record();
 }
 
-export async function kayitBitir(): Promise<string | null> {
-  if (!recording) return null;
-  const rec = recording;
-  recording = null;
+export async function kayitBitir(recorder: AudioRecorder): Promise<string | null> {
   try {
-    await rec.stopAndUnloadAsync();
-    const uri = rec.getURI();
-    return uri ?? null;
+    await recorder.stop();
+    return recorder.uri ?? null;
   } catch (e) {
     console.log('[PERA-AUD] kayitBitir hata:', e instanceof Error ? e.message : String(e));
     return null;
   } finally {
-    await Audio.setAudioModeAsync({ allowsRecordingIOS: false }).catch(() => {});
+    await setAudioModeAsync({ allowsRecording: false }).catch(() => {});
   }
 }
 
-export async function kayitIptal(): Promise<void> {
-  if (!recording) return;
+export async function kayitIptal(recorder: AudioRecorder): Promise<void> {
   try {
-    await recording.stopAndUnloadAsync();
+    await recorder.stop();
   } catch {}
-  recording = null;
-  await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-}
-
-export function kayitDevamEdiyor(): boolean {
-  return recording !== null;
+  await setAudioModeAsync({ allowsRecording: false });
 }

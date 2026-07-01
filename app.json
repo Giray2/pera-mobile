@@ -45,7 +45,7 @@
     "plugins": [
       "expo-secure-store",
       [
-        "expo-av",
+        "expo-audio",
         {
           "microphonePermission": "PERA, sesli soru sormak için mikrofona erişim gerektiriyor."
         }
