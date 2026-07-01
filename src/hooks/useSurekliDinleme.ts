@@ -77,8 +77,8 @@ export function useSurekliDinleme(
 
     // Cihaz desteği kontrolü
     try {
-      const destekleniyor = ExpoSpeechRecognitionModule.isAvailable?.();
-      if (destekleniyor === false) {
+      const servisler = ExpoSpeechRecognitionModule.getSpeechRecognitionServices();
+      if (servisler.length === 0) {
         setSonTranscript('Konuşma tanıma bu cihazda desteklenmiyor');
         setDur('kapali');
         return;

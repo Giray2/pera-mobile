@@ -12,10 +12,17 @@
       "distribution": "internal"
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "ios": {
+        "appleTeamId": "DMV2SQ2XCY"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleTeamId": "DMV2SQ2XCY"
+      }
+    }
   }
 }
