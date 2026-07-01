@@ -13,6 +13,7 @@
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "PERA, söylediklerinizi metne dönüştürmek için konuşma tanıma özelliğini kullanır.",
         "NSMicrophoneUsageDescription": "PERA, sesli soru sormak için mikrofona erişim gerektiriyor.",
+        "NSPhotoLibraryUsageDescription": "PERA, görev ve bildirimlere eklenen görselleri kaydetmek/görüntülemek için fotoğraf kütüphanesine erişim gerektirebilir.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "privacyManifests": {
