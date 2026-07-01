@@ -5,7 +5,7 @@
     "version": "2.1.0",
     "description": "PAKSET çalışanları için sesli ve yazılı yapay zeka asistanı destekli görev ve iş takip uygulaması.",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
@@ -30,10 +30,8 @@
       "versionCode": 20,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
-        "backgroundColor": "#020B14",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#0A1628",
+        "foregroundImage": "./assets/images/adaptive-icon.png"
       },
       "permissions": [
         "android.permission.RECORD_AUDIO",
@@ -42,7 +40,7 @@
       ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
       "expo-secure-store",
@@ -62,7 +60,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
+          "icon": "./assets/images/icon.png",
           "color": "#020B14",
           "defaultChannel": "pera-gorev-kanal"
         }
