@@ -1,5 +1,5 @@
 export const ENV = {
-  API_BASE_URL: 'http://192.168.100.175:5000',
+  API_BASE_URL: 'http://192.168.99.1:5000',
   TOKEN_KEY: 'pera_token',
   USER_KEY: 'pera_user',
   CHAT_HISTORY_KEY: 'pera_chat_v2',
