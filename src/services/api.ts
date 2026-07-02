@@ -5,7 +5,11 @@ import { ENV } from '../config/env';
 const api = axios.create({
   baseURL: ENV.API_BASE_URL,
   timeout: ENV.REQUEST_TIMEOUT_MS,
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Firma-No': ENV.FIRMA_NO,
+    'X-Donem-No': ENV.DONEM_NO,
+  },
 });
 
 const REFRESH_KEY = 'pera_refresh_token';
