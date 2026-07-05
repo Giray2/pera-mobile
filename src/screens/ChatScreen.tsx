@@ -6,6 +6,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Speech from 'expo-speech';
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
+import * as SecureStore from 'expo-secure-store';
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../hooks/useChat';
 import { useAudioRecord } from '../hooks/useAudioRecord';
@@ -13,6 +15,7 @@ import { useSurekliDinleme } from '../hooks/useSurekliDinleme';
 import { MessageBubble } from '../components/MessageBubble';
 import { AudioRecordButton } from '../components/AudioRecordButton';
 import { TypingIndicator } from '../components/TypingIndicator';
+import { ENV } from '../config/env';
 import type { Mesaj, SohbetKayit } from '../hooks/useChat';
 
 const HIZLI_SORULAR = [
@@ -25,10 +28,16 @@ const HIZLI_SORULAR = [
 
 function ttsMetnHazirla(metin: string): string {
   let t = metin
+    // EMOJİ TEMİZLE: TTS motoru (özellikle iOS) emojiyi görünce açıklamasını
+    // ("çizgi grafiği", "onay işareti" vb.) sesli okuyor — TTS'e hiç gitmemeli.
+    .replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, '')
     .replace(/\*\*/g, '').replace(/\*/g, '')
     .replace(/#{1,6}\s/g, '').replace(/[-•]\s/g, '')
     .replace(/\bTL\b/g, 'Türk Lirası')
-    .replace(/\b([A-Z]{2,5})\b/g, (m) => m.split('').join(' '))
+    .replace(/\bKDV\b/g, 'K D V')
+    // ESKİDEN her 2-5 harfli BÜYÜK HARF kelimeyi (ör. SÜTAŞ, ürün kodları) harf harf
+    // okutuyordu — kaldırıldı, sadece yukarıdaki bilinen kısaltmalar özel işlenir.
+    .replace(/\s{2,}/g, ' ')
     .trim();
   if (t.length <= 420) return t;
   const nokta = t.indexOf('. ', 80);
@@ -86,10 +95,30 @@ export default function ChatScreen() {
     gecmis, gecmisYukle, yeniSohbet, sor, sesleGonder, tekrarDene,
   } = useChat();
 
+  // AŞAMA 2 (sunucu TTS): PERA-API /api/tts/seslendir üzerinden Microsoft Edge Neural
+  // Türkçe ses (tr-TR-EmelNeural/AhmetNeural) — cihaz TTS'sine göre özellikle Android'de
+  // çok daha tutarlı/doğal. audioPlayerRef aktifken sesDurdur bunu durdurur; sunucu
+  // başarısız olursa (mikroservis henüz ayakta değilse vb.) AŞAMA 1'e (expo-speech,
+  // aşağıdaki sesCihazdaOku) otomatik düşülür.
+  const audioPlayerRef = useRef<AudioPlayer | null>(null);
+
   // sesDurdur ve sesliOku önce tanımlanıyor (sorVeTTS bağımlı)
-  const sesDurdur = useCallback(() => { Speech.stop(); setKonusuyor(false); }, []);
+  const sesDurdur = useCallback(() => {
+    Speech.stop();
+    if (audioPlayerRef.current) {
+      try { audioPlayerRef.current.pause(); audioPlayerRef.current.remove(); } catch {}
+      audioPlayerRef.current = null;
+    }
+    setKonusuyor(false);
+  }, []);
 
   const konusuyorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // KONUŞMA MODU: useSurekliDinleme'nin konusmaModunuAc'ı henüz tanımlanmadan
+  // (aşağıda) sesliOku burada oluşturuluyor — ref ile "ileri referans" çözülüyor.
+  const konusmaModunuAcRef = useRef<() => void>(() => {});
+  const surekliModRef = useRef(surekliMod);
+  surekliModRef.current = surekliMod;
 
   // En doğal Türkçe TTS sesini seç (Google'ın network/enhanced sesleri tercih)
   const enIyiSesRef = useRef<string | undefined>(undefined);
@@ -113,17 +142,10 @@ export default function ChatScreen() {
     })();
   }, []);
 
-  const sesliOku = useCallback((metin: string) => {
-    Speech.stop();
-    if (konusuyorTimerRef.current) clearTimeout(konusuyorTimerRef.current);
-    setKonusuyor(true);
-    const bitti = () => {
-      if (konusuyorTimerRef.current) { clearTimeout(konusuyorTimerRef.current); konusuyorTimerRef.current = null; }
-      setKonusuyor(false);
-    };
-    // maksimum 30 sn sonra her durumda sıfırla
-    konusuyorTimerRef.current = setTimeout(bitti, 30000);
-    Speech.speak(ttsMetnHazirla(metin), {
+  // AŞAMA 1 (cihaz TTS, fallback): sunucu TTS'ine ulaşılamazsa (mikroservis kapalı,
+  // ağ hatası vb.) buraya düşülür — mevcut expo-speech davranışı aynen korunuyor.
+  const sesCihazdaOku = useCallback((metinHazir: string, bitti: () => void) => {
+    Speech.speak(metinHazir, {
       language: 'tr-TR', voice: enIyiSesRef.current, pitch: 1.0, rate: 1.05,
       onDone: bitti,
       onStopped: bitti,
@@ -131,30 +153,88 @@ export default function ChatScreen() {
     });
   }, []);
 
+  const sesliOku = useCallback(async (metin: string) => {
+    sesDurdur();
+    if (konusuyorTimerRef.current) clearTimeout(konusuyorTimerRef.current);
+    setKonusuyor(true);
+    const bitti = () => {
+      if (konusuyorTimerRef.current) { clearTimeout(konusuyorTimerRef.current); konusuyorTimerRef.current = null; }
+      audioPlayerRef.current = null;
+      setKonusuyor(false);
+      // KONUŞMA MODU: PERA cevabını bitirince, sürekli mod açıksa kullanıcı "pera"
+      // demeden 18 saniye içinde devam sorusu sorabilsin.
+      if (surekliModRef.current) konusmaModunuAcRef.current();
+    };
+    // maksimum 30 sn sonra her durumda sıfırla
+    konusuyorTimerRef.current = setTimeout(bitti, 30000);
+
+    const metinHazir = ttsMetnHazirla(metin);
+    try {
+      const token = await SecureStore.getItemAsync(ENV.TOKEN_KEY);
+      const url = `${ENV.API_BASE_URL}/api/tts/seslendir?metin=${encodeURIComponent(metinHazir)}`;
+      const player = createAudioPlayer({
+        uri: url,
+        headers: {
+          Authorization: token ? `Bearer ${token}` : '',
+          'X-Firma-No': ENV.FIRMA_NO,
+          'X-Donem-No': ENV.DONEM_NO,
+        },
+      });
+      audioPlayerRef.current = player;
+      const dinleyici = player.addListener('playbackStatusUpdate', (status) => {
+        if (status.error) {
+          console.log('[PERA-TTS] sunucu TTS hatası, cihaz TTS\'ine düşülüyor:', status.error);
+          dinleyici.remove();
+          try { player.remove(); } catch {}
+          if (audioPlayerRef.current === player) audioPlayerRef.current = null;
+          sesCihazdaOku(metinHazir, bitti);
+          return;
+        }
+        if (status.didJustFinish) {
+          dinleyici.remove();
+          try { player.remove(); } catch {}
+          if (audioPlayerRef.current === player) bitti();
+        }
+      });
+      await setAudioModeAsync({ playsInSilentMode: true });
+      player.play();
+    } catch (e) {
+      console.log('[PERA-TTS] sunucu TTS başlatılamadı, cihaz TTS\'ine düşülüyor:', e instanceof Error ? e.message : String(e));
+      sesCihazdaOku(metinHazir, bitti);
+    }
+  }, [sesDurdur, sesCihazdaOku]);
+
   // TTS wrapper'lar — cevap gelince sesliMod aktifse otomatik okur
   const sesliModRef = useRef(sesliMod);
   sesliModRef.current = sesliMod;
 
   const sorVeTTS = useCallback(async (metin: string) => {
-    Speech.stop();
-    setKonusuyor(false);
+    sesDurdur();
     const cevap = await sor(metin);
     if (cevap && sesliModRef.current) sesliOku(cevap);
-  }, [sor, sesliOku]);
+  }, [sor, sesliOku, sesDurdur]);
 
   const sesleGonderVeTTS = useCallback(async (uri: string) => {
-    Speech.stop();
-    setKonusuyor(false);
+    sesDurdur();
     const cevap = await sesleGonder(uri);
     if (cevap && sesliModRef.current) sesliOku(cevap);
-  }, [sesleGonder, sesliOku]);
+  }, [sesleGonder, sesliOku, sesDurdur]);
 
   const { kayitYapiliyor, basla, bitir } = useAudioRecord(sesleGonderVeTTS);
 
-  const { durum: dinlemeDurum, sonTranscript } = useSurekliDinleme(
+  // BARGE-IN: !konusuyor KALDIRILDI — PERA konuşurken de dinleyici çalışmaya devam
+  // etmeli ki kullanıcı araya girip konuşabilsin (aşağıdaki peraKonusuyorMu/onKesinti
+  // ile useSurekliDinleme bunu "kesinti" olarak işler, wake-word aramaz).
+  const { durum: dinlemeDurum, sonTranscript, konusmaModunuAc } = useSurekliDinleme(
     sorVeTTS,
-    surekliMod && !kayitYapiliyor && !yukleniyor && !sesYukleniyor && !konusuyor,
+    surekliMod && !kayitYapiliyor && !yukleniyor && !sesYukleniyor,
+    konusuyor,
+    sesDurdur,
+    // "Hey Pera" tek başına söylenince sesli onay — kullanıcı wake-word'ün
+    // duyulduğunu (yalnızca ekran metninden değil) sesle de anlasın.
+    (ifade) => { sesliOku(ifade); },
   );
+  konusmaModunuAcRef.current = konusmaModunuAc;
 
   useEffect(() => { gecmisYukle(); }, [gecmisYukle]);
 
@@ -166,16 +246,15 @@ export default function ChatScreen() {
     const metin = yazilan.trim();
     if (!metin || yukleniyor) return;
     setYazilan('');
-    Speech.stop();
-    setKonusuyor(false);
+    sesDurdur();
     const cevap = await sor(metin);
     if (cevap && sesliModRef.current) sesliOku(cevap);
-  }, [yazilan, yukleniyor, sor, sesliOku]);
+  }, [yazilan, yukleniyor, sor, sesliOku, sesDurdur]);
 
   const handleYeniSohbet = () => {
     Alert.alert('Yeni Sohbet', 'Mevcut sohbet geçmişe kaydedilip temizlenecek.', [
       { text: 'İptal', style: 'cancel' },
-      { text: 'Temizle', onPress: () => { Speech.stop(); setKonusuyor(false); yeniSohbet(); } },
+      { text: 'Temizle', onPress: () => { sesDurdur(); yeniSohbet(); } },
     ]);
   };
 
@@ -195,7 +274,7 @@ export default function ChatScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => setSurekliMod((m) => {
-            if (!m) { Speech.stop(); setKonusuyor(false); }
+            if (!m) sesDurdur();
             return !m;
           })}
           style={[s.headerBtn, surekliMod && s.headerBtnAktif]}

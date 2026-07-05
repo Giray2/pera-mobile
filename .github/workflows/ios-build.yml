@@ -1,0 +1,40 @@
+name: iOS Build (EAS local)
+
+# EAS ücretsiz planın aylık iOS build kotasını (15 build) tüketmemek için,
+# gerçek Xcode derlemesi burada (GitHub Actions'ın macOS runner'ında) yapılır —
+# EXPO_TOKEN sadece Apple imzalama sertifikalarını/provisioning profile'ı EAS'ın
+# uzak deposundan çekmek için kullanılır, EAS'ın bulut build kuyruğu hiç kullanılmaz.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install fastlane
+        run: brew install fastlane
+
+      - name: Build iOS (local)
+        run: eas build --platform ios --local --profile preview --non-interactive --output ./pera-ios.ipa
+        env:
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pera-ios-ipa
+          path: pera-ios.ipa

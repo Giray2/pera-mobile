@@ -88,23 +88,56 @@ export const chatApi = {
 };
 
 // ── Ses → STT ────────────────────────────────────────────────────────────────
+// NOT: `api` (paylaşılan axios instance) varsayılan olarak Content-Type:
+// application/json taşıyor. Multipart/form-data yüklemesinde bu header'ı
+// "transformRequest" içinde silme numarası bazı platformlarda (özellikle iOS'ta
+// gözlemlendi — Android'de sorun yaşanmadı) güvenilir çalışmıyor: JSON header'ı
+// isteğe sızıp sunucunun multipart gövdeyi doğru ayrıştırmasını engelleyebiliyor
+// ("Ses dosyası yüklenemedi" hatasının kök nedeni buydu). Bu yüzden ses yüklemesi
+// TAMAMEN AYRI, varsayılan JSON header'ı OLMAYAN bir axios instance'ı kullanır.
+const sesApiClient = axios.create({
+  baseURL: ENV.API_BASE_URL,
+  timeout: ENV.AUDIO_UPLOAD_TIMEOUT_MS,
+  headers: {
+    'X-Firma-No': ENV.FIRMA_NO,
+    'X-Donem-No': ENV.DONEM_NO,
+  },
+});
+sesApiClient.interceptors.request.use(async (config) => {
+  const token = await tokenOku();
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 export const sesApi = {
   cevir: async (audioUri: string): Promise<string> => {
+    // Gerçek kayıt uzantısıyla (.m4a — bkz. audio.ts KAYIT_AYARLARI) eşleşen
+    // dosya adı/mime kullan; önceden "kayit.mp4" yazılıyordu, uyuşmazlık
+    // bazı sunucu/parser kombinasyonlarında soruna yol açabilir.
     const formData = new FormData();
     formData.append('audio', {
       uri: audioUri,
-      type: 'audio/mp4',
-      name: 'kayit.mp4',
+      type: 'audio/m4a',
+      name: 'kayit.m4a',
     } as unknown as Blob);
 
-    const res = await api.post('/api/ses/cevir', formData, {
-      timeout: ENV.AUDIO_UPLOAD_TIMEOUT_MS,
-      transformRequest: (data, headers) => {
-        delete headers['Content-Type'];
-        return data;
-      },
-    });
-    return (res.data?.metin as string) ?? '';
+    try {
+      // ÖNEMLİ: Content-Type'ı BURADA ELLE SET ETME — "multipart/form-data" yazıp
+      // boundary'yi atlarsan React Native'in FormData için otomatik ürettiği
+      // boundary'li Content-Type'ın YERİNE geçer ve sunucu gövdeyi ayrıştıramaz.
+      // sesApiClient'te varsayılan Content-Type YOK (bkz. yukarıdaki tanım), bu
+      // yüzden hiç header vermeden bırakmak RN'in doğru multipart header'ını
+      // (boundary dahil) otomatik eklemesini sağlar.
+      const res = await sesApiClient.post('/api/ses/cevir', formData);
+      return (res.data?.metin as string) ?? '';
+    } catch (err) {
+      // Teşhis için gerçek hatayı logla (Metro/Xcode konsolunda görülebilir) —
+      // kullanıcıya gösterilen genel "Ses dosyası yüklenemedi" mesajı yeterli
+      // bilgi vermiyordu.
+      const detay = (err as { message?: string; response?: { status?: number; data?: unknown } });
+      console.log('[PERA-SES] yükleme hatası:', detay?.response?.status, detay?.response?.data ?? detay?.message);
+      throw err;
+    }
   },
 };
 

@@ -10,11 +10,32 @@ const LOCALE = 'tr-TR';
 const RESTART_GECIKME_MS = 800;
 const NETWORK_RETRY_MS   = 4000;
 const CAPTURE_RETRY_MS   = 6000;
-const WAKE_ZAMAN_ASIMI   = 5000; // "pera" duyulduktan sonra komut için bekleme süresi
+const WAKE_ZAMAN_ASIMI   = 5000;   // "pera" duyulduktan sonra komut için bekleme süresi
+const KONUSMA_MODU_SURESI = 18000; // PERA cevap verdikten sonra "pera" demeden devam edebilme penceresi
+// BARGE-IN (sesle kesinti): PERA konuşurken gelen ara (interim) sonuç en az bu kadar
+// karakter/kelime içermiyorsa YOK SAYILIR — kısa gürültü/yankı parçacıklarının
+// (PERA'nın kendi sesinin mikrofona karışması) yanlışlıkla kesinti tetiklemesini
+// azaltır. Gerçek cihazda ayarlanması/ince ayar gerekebilir (bkz. AGENTS.md notu).
+const KESINTI_MIN_KELIME = 2;
 
 const ERP_TERIMLER = [
   'pera', 'sipariş', 'fatura', 'stok', 'ürün', 'müşteri', 'cari',
   'parça', 'sevkiyat', 'teslim', 'bakiye', 'depo', 'satış',
+];
+
+// "Hey Pera" / "Pera" TEK BAŞINA (komutsuz) söylendiğinde sesli onay için — her
+// seferinde aynı cümle robotik hissettirir, bu yüzden rastgele seçilen 10 varyasyon.
+const WAKE_ONAY_IFADELERI = [
+  'Dinliyorum',
+  'Buyurun',
+  'Evet, dinliyorum',
+  'Sizi dinliyorum',
+  'Söyleyin',
+  'Buyurun, sorunuzu alayım',
+  'Merhaba, dinliyorum',
+  'Evet?',
+  'Sorun bakalım',
+  'Hazırım, buyurun',
 ];
 
 function wakeAyikla(metin: string): { wake: boolean; komut: string } {
@@ -29,6 +50,16 @@ function wakeAyikla(metin: string): { wake: boolean; komut: string } {
 export function useSurekliDinleme(
   onSoru: (metin: string) => void,
   etkin: boolean,
+  // BARGE-IN: PERA şu an sesli cevap veriyorsa true — bu durumda gelen bir konuşma
+  // otomatik "kesinti" sayılır (wake-word beklemeden). onKesinti çağrılır (ChatScreen
+  // bunu Speech.stop() için kullanır), ardından metin normal komut gibi işlenir.
+  peraKonusuyorMu: boolean = false,
+  onKesinti?: () => void,
+  // "Hey Pera"/"Pera" komutsuz (tek başına) söylendiğinde çağrılır — seçilen onay
+  // ifadesini (ör. "Dinliyorum") parametre olarak alır, ChatScreen bunu sesliOku ile
+  // seslendirir. Sesli geri bildirim olmadan kullanıcı wake-word'ün duyulduğunu
+  // anlayamıyordu (yalnızca küçük bir ekran metni değişiyordu).
+  onWakeTetiklendi?: (ifade: string) => void,
 ) {
   const [durum, setDurum]                 = useState<DinlemeDurum>('kapali');
   const [sonTranscript, setSonTranscript] = useState('');
@@ -37,12 +68,18 @@ export function useSurekliDinleme(
     etkin:           false,
     calisiyor:       false,
     wakeAktif:       false,
+    peraKonusuyorMu: false,
     restartTimer:    null as ReturnType<typeof setTimeout> | null,
     wakeTimer:       null as ReturnType<typeof setTimeout> | null,
   });
+  r.current.peraKonusuyorMu = peraKonusuyorMu;
 
   const onSoruRef = useRef(onSoru);
   onSoruRef.current = onSoru;
+  const onKesintiRef = useRef(onKesinti);
+  onKesintiRef.current = onKesinti;
+  const onWakeTetiklendiRef = useRef(onWakeTetiklendi);
+  onWakeTetiklendiRef.current = onWakeTetiklendi;
 
   const setDur = useCallback((d: DinlemeDurum) => setDurum(d), []);
 
@@ -53,16 +90,25 @@ export function useSurekliDinleme(
     }
   }, []);
 
-  const wakeAktifYap = useCallback(() => {
+  // sure verilmezse normal "pera" bekleme süresi (5sn) kullanılır — KONUSMA_MODU_SURESI
+  // (18sn) ise PERA cevap verdikten SONRA, kullanıcı tekrar "pera" demeden devam
+  // edebilsin diye ChatScreen tarafından (konusmaModunuAc ile) tetiklenir.
+  const wakeAktifYap = useCallback((sure: number = WAKE_ZAMAN_ASIMI) => {
     wakeTimerTemizle();
     r.current.wakeAktif = true;
-    // 5 saniye içinde komut gelmezse "pera" bekleme moduna dön
     r.current.wakeTimer = setTimeout(() => {
       r.current.wakeAktif = false;
       r.current.wakeTimer = null;
       if (r.current.etkin) setSonTranscript('"pera" deyin...');
-    }, WAKE_ZAMAN_ASIMI);
+    }, sure);
   }, [wakeTimerTemizle]);
+
+  // KONUŞMA MODU: dışarıdan (ChatScreen, PERA'nın cevabı bitince) çağrılır — kullanıcı
+  // bir sonraki soru için "pera" demek ZORUNDA KALMAZ, 18 saniye içinde doğrudan sorabilir.
+  const konusmaModunuAc = useCallback(() => {
+    wakeAktifYap(KONUSMA_MODU_SURESI);
+    setSonTranscript('Dinliyorum, sorabilirsiniz...');
+  }, [wakeAktifYap]);
 
   const wakeTemizle = useCallback(() => {
     wakeTimerTemizle();
@@ -126,6 +172,23 @@ export function useSurekliDinleme(
     const temiz = metin.trim();
     if (!temiz) return;
 
+    // BARGE-IN: PERA konuşurken gelen yeterince uzun bir final sonuç, wake-word
+    // ARANMADAN doğrudan kesinti + yeni komut sayılır (ChatGPT'deki "konuşarak
+    // susturma" mantığı). Kısa/tek kelimelik sonuçlar (muhtemelen PERA'nın kendi
+    // sesinin mikrofona karışması/yankı) YOK SAYILIR.
+    if (st.peraKonusuyorMu) {
+      const kelimeSayisi = temiz.split(/\s+/).filter(Boolean).length;
+      if (kelimeSayisi >= KESINTI_MIN_KELIME) {
+        console.log('[PERA-SR] BARGE-IN tetiklendi:', JSON.stringify(temiz));
+        onKesintiRef.current?.();
+        wakeTemizle();
+        setDur('isleniyor');
+        setSonTranscript(`▶ ${temiz}`);
+        onSoruRef.current(temiz);
+      }
+      return;
+    }
+
     const { wake, komut } = wakeAyikla(temiz);
     console.log('[PERA-SR] final:', JSON.stringify(temiz), 'wake:', wake, 'komut:', JSON.stringify(komut), 'wakeAktif:', st.wakeAktif);
 
@@ -136,7 +199,9 @@ export function useSurekliDinleme(
       onSoruRef.current(komut);
     } else if (wake && !komut) {
       wakeAktifYap();
-      setSonTranscript('Pera? — komutu söyleyin');
+      const ifade = WAKE_ONAY_IFADELERI[Math.floor(Math.random() * WAKE_ONAY_IFADELERI.length)];
+      setSonTranscript(ifade);
+      onWakeTetiklendiRef.current?.(ifade);
     } else if (st.wakeAktif) {
       wakeTemizle();
       setDur('isleniyor');
@@ -242,5 +307,5 @@ export function useSurekliDinleme(
     };
   }, [etkin, wakeTemizle, wakeTimerTemizle]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { durum, sonTranscript };
+  return { durum, sonTranscript, konusmaModunuAc };
 }

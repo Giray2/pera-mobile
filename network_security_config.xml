@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DMZ backend'i (192.168.99.1) HTTP (TLS'siz) çalışıyor — sadece iç ağda kullanılır,
+  dış ağa açılmaz (bkz. CLAUDE.md "Yasaklı Operasyonlar"). Manifest'teki
+  usesCleartextTraffic="true" bazı Android sürümlerinde/Google Services manifest
+  birleştirmesinde yetersiz kalabildiği için, bu dosya AÇIKÇA bu IP için cleartext'e
+  izin verir (belirtilmemiş diğer tüm domain'lerde varsayılan HTTPS-only kalır).
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">192.168.99.1</domain>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

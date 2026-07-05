@@ -10,7 +10,7 @@ import ChatScreen from '../screens/ChatScreen';
 import GorevlerScreen from '../screens/GorevlerScreen';
 import GorevDetayScreen from '../screens/GorevDetayScreen';
 import GorevOlusturScreen from '../screens/GorevOlusturScreen';
-import { ActivityIndicator, View, Text } from 'react-native';
+import { ActivityIndicator, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import VersionEtiketi from '../components/VersionEtiketi';
 import OzetScreen from '../screens/OzetScreen';
 import ProfilScreen from '../screens/ProfilScreen';
@@ -28,6 +28,59 @@ function TabIcon({ label, focused }: { label: string; focused: boolean }) {
     </Text>
   );
 }
+
+// ASİSTAN — orta sekmede diğerlerinden BÜYÜK ve YÜKSELTİLMİŞ (elevated FAB tarzı)
+// bir buton olarak render edilir, kolayca fark edilsin diye.
+function AsistanTabButton(props: any) {
+  const { onPress, accessibilityState } = props;
+  const secili = accessibilityState?.selected;
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.85}
+      style={styles.asistanButonKapsayici}
+    >
+      <View style={[styles.asistanButon, secili && styles.asistanButonAktif]}>
+        <Text style={styles.asistanEmoji}>🤖</Text>
+      </View>
+      <Text style={[styles.asistanEtiket, secili && { color: '#4fc3f7' }]}>Asistan</Text>
+    </TouchableOpacity>
+  );
+}
+
+const styles = StyleSheet.create({
+  asistanButonKapsayici: {
+    top: -22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  asistanButon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#1c2a36',
+    borderWidth: 3,
+    borderColor: '#4fc3f7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 6,
+  },
+  asistanButonAktif: {
+    backgroundColor: '#4fc3f7',
+  },
+  asistanEmoji: {
+    fontSize: 30,
+  },
+  asistanEtiket: {
+    fontSize: 11,
+    color: '#546e7a',
+    marginTop: 2,
+  },
+});
 
 function AnaSayfaTabs() {
   return (
@@ -58,21 +111,23 @@ function AnaSayfaTabs() {
         }}
       />
       <Tab.Screen
-        name="Chat"
-        component={ChatScreen}
-        options={{
-          title: 'PERA Asistan',
-          tabBarLabel: 'Asistan',
-          tabBarIcon: ({ focused }) => <Text style={{ fontSize: 20 }}>{focused ? '🤖' : '🤖'}</Text>,
-        }}
-      />
-      <Tab.Screen
         name="Gorevler"
         component={GorevlerScreen}
         options={{
           title: 'Görevler',
           tabBarLabel: 'Görevler',
           tabBarIcon: ({ focused }) => <Text style={{ fontSize: 20 }}>{focused ? '✅' : '📋'}</Text>,
+        }}
+      />
+      {/* ASİSTAN artık ORTADA (5 sekmenin 3.'sü) ve diğerlerinden büyük/yükseltilmiş
+          bir buton olarak — kullanıcının en sık kullanacağı özellik daha görünür olsun. */}
+      <Tab.Screen
+        name="Chat"
+        component={ChatScreen}
+        options={{
+          title: 'PERA Asistan',
+          tabBarLabel: 'Asistan',
+          tabBarButton: (props) => <AsistanTabButton {...props} />,
         }}
       />
       <Tab.Screen

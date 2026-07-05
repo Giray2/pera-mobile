@@ -12,6 +12,7 @@
     "axios": "^1.18.0",
     "expo": "~56.0.13",
     "expo-audio": "^56.0.12",
+    "expo-build-properties": "~56.0.21",
     "expo-dev-client": "~56.0.21",
     "expo-modules-core": "~56.0.18",
     "expo-notifications": "~56.0.19",
@@ -19,8 +20,10 @@
     "expo-speech": "~56.0.3",
     "expo-speech-recognition": "^56.0.1",
     "expo-status-bar": "~56.0.4",
+    "punycode": "^2.3.1",
     "react": "19.2.3",
     "react-native": "0.85.3",
+    "react-native-markdown-display": "^7.0.2",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2"
   },

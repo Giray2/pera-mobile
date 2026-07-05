@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, Modal, FlatList,
   TextInput, ActivityIndicator, StyleSheet, Share, Alert,
 } from 'react-native';
+import Markdown from 'react-native-markdown-display';
 import type { Mesaj } from '../hooks/useChat';
 import { mailApi, MailKullanici } from '../services/api';
 
@@ -110,7 +111,13 @@ export function MessageBubble({ mesaj, onTekrarDene, onSesliOku }: Props) {
       <View style={s.icerik}>
         <TouchableOpacity activeOpacity={0.85} onLongPress={uzunBaslat} delayLongPress={400}>
           <View style={[s.bubble, bgStyle]}>
-            <Text style={s.metin}>{mesaj.metin}</Text>
+            {/* PERA cevapları markdown içerebilir (**kalın**, listeler); kullanıcı/
+                hata/sistem mesajları düz metin — sade tutulur. */}
+            {!isUser && !isHata && !isSistem ? (
+              <Markdown style={markdownStil}>{mesaj.metin}</Markdown>
+            ) : (
+              <Text style={s.metin}>{mesaj.metin}</Text>
+            )}
             {!isUser && !isHata && !isSistem && (
               <Text style={s.meta}>
                 {mesaj.cachtenGeldi ? '⚡ cache' : mesaj.sureMs ? `⏱ ${(mesaj.sureMs / 1000).toFixed(1)}s` : ''}
@@ -131,6 +138,16 @@ export function MessageBubble({ mesaj, onTekrarDene, onSesliOku }: Props) {
     </View>
   );
 }
+
+// react-native-markdown-display bir StyleSheet objesi değil, düz obje bekler.
+const markdownStil = {
+  body: { color: '#eceff1', fontSize: 14, lineHeight: 20 },
+  strong: { color: '#4fc3f7', fontWeight: '700' as const },
+  bullet_list: { marginVertical: 2 },
+  ordered_list: { marginVertical: 2 },
+  list_item: { marginVertical: 1 },
+  paragraph: { marginTop: 0, marginBottom: 4 },
+};
 
 const s = StyleSheet.create({
   row:       { flexDirection: 'row', marginBottom: 12, alignItems: 'flex-end', paddingHorizontal: 12 },

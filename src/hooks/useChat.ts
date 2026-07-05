@@ -82,10 +82,27 @@ export function useChat() {
       setYukleniyor(true);
       try {
         const res = await chatApi.sor(metin.trim(), konusmaGecmisi);
-        const { cevap, hataMesaj, cachtenGeldi, sureMs, grafikVerisi } = res.data;
+        const d = res.data;
 
-        const cevapMetni: string = cevap || hataMesaj || 'Yanıt alınamadı.';
-        mesajEkle({ tip: res.data.basarili ? 'pera' : 'hata', metin: cevapMetni, sureMs, cachtenGeldi, grafikVerisi });
+        // PERA-API'nin gerçek yanıt sözleşmesi: sohbet (selamlama) | belirsizlik
+        // (netleştirme seçenekleri) | success=false (hata) | success=true+yorum (normal cevap).
+        let cevapMetni: string;
+        let tip: MesajTipi = 'pera';
+
+        if (d.sohbet) {
+          cevapMetni = d.sohbet;
+        } else if (d.belirsizlik) {
+          const secenekler: string[] = d.belirsizlik.secenekler ?? [];
+          const secenekMetni = secenekler.map((s, i) => `${i + 1}. ${s}`).join('\n');
+          cevapMetni = secenekMetni ? `${d.belirsizlik.soru}\n\n${secenekMetni}` : d.belirsizlik.soru;
+        } else if (d.success === false) {
+          cevapMetni = d.kullaniciMesaji || d.error || 'Yanıt alınamadı.';
+          tip = 'hata';
+        } else {
+          cevapMetni = d.yorum || 'Yanıt alınamadı.';
+        }
+
+        mesajEkle({ tip, metin: cevapMetni, grafikVerisi: d.grafikUrl });
 
         gecmisRef.current = [
           ...konusmaGecmisi,
@@ -95,7 +112,8 @@ export function useChat() {
 
         return cevapMetni;
       } catch (err: unknown) {
-        const msg = (err as { response?: { data?: { hataMesaj?: string } } })?.response?.data?.hataMesaj ?? 'Bağlantı hatası.';
+        const data = (err as { response?: { data?: { kullaniciMesaji?: string; error?: string } } })?.response?.data;
+        const msg = data?.kullaniciMesaji || data?.error || 'Bağlantı hatası.';
         mesajEkle({ tip: 'hata', metin: msg, orijinalSoru: metin.trim() });
         return null;
       } finally {
