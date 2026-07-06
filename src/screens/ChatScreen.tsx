@@ -299,10 +299,24 @@ export default function ChatScreen() {
 
   const bos = mesajlar.length === 0 && !yukleniyor;
 
+  // KLAVYE DÜZELTMESİ: KeyboardAvoidingView'in 'padding' davranışı, üstteki özel
+  // header'ın (safe-area + ikonlar) gerçek yüksekliğini bilmediği için input alanını
+  // yanlış hesaplayıp klavyenin ALTINDA/ARKASINDA bırakıyordu (iOS'ta ekrana hiç
+  // girmiyordu). Header'ın GERÇEK render edilmiş yüksekliği ölçülüp keyboardVerticalOffset
+  // olarak veriliyor — sabit bir sayı tahmin etmek yerine.
+  const [headerYuksekligi, setHeaderYuksekligi] = useState(0);
+
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.container}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? headerYuksekligi : 0}
+      style={s.container}
+    >
       {/* Header */}
-      <View style={[s.header, { paddingTop: Math.max(insets.top, 12) }]}>
+      <View
+        style={[s.header, { paddingTop: Math.max(insets.top, 12) }]}
+        onLayout={(e) => setHeaderYuksekligi(e.nativeEvent.layout.height)}
+      >
         <Text style={s.headerTitle}>PERA</Text>
         <View style={{ flex: 1 }} />
         <TouchableOpacity onPress={() => setGecmisAcik(true)} style={s.headerBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -386,7 +400,7 @@ export default function ChatScreen() {
       {/* Typing */}
       {yukleniyor && (
         <View style={s.typingRow}>
-          <Text style={s.avatar}>🤖</Text>
+          <Text style={s.avatar}>✨</Text>
           <TypingIndicator />
         </View>
       )}

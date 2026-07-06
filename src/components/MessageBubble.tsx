@@ -107,7 +107,7 @@ export function MessageBubble({ mesaj, onTekrarDene, onSesliOku }: Props) {
 
   return (
     <View style={[s.row, isUser && s.rowUser]}>
-      {!isUser && <Text style={s.avatar}>{isSistem ? 'ℹ️' : isHata ? '⚠️' : '🤖'}</Text>}
+      {!isUser && <Text style={s.avatar}>{isSistem ? 'ℹ️' : isHata ? '⚠️' : '✨'}</Text>}
       <View style={s.icerik}>
         <TouchableOpacity activeOpacity={0.85} onLongPress={uzunBaslat} delayLongPress={400}>
           <View style={[s.bubble, bgStyle]}>
