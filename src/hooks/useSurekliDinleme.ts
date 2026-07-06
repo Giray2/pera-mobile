@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
+import { Platform } from 'react-native';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
@@ -126,15 +127,21 @@ export function useSurekliDinleme(
     const st = r.current;
     if (!st.etkin || st.calisiyor) return;
 
-    // Cihaz desteği kontrolü
-    try {
-      const servisler = ExpoSpeechRecognitionModule.getSpeechRecognitionServices();
-      if (servisler.length === 0) {
-        setSonTranscript('Konuşma tanıma bu cihazda desteklenmiyor');
-        setDur('kapali');
-        return;
-      }
-    } catch {}
+    // Cihaz desteği kontrolü — getSpeechRecognitionServices() SADECE ANDROID'E ÖZEL
+    // (paket adı listesi döndürür); iOS'ta bu liste HER ZAMAN boş dönüyor, bu yüzden
+    // Android dışında çalıştırılırsa iOS'ta "desteklenmiyor" diyip özelliği tamamen
+    // engelliyordu (canlı testte tam da bu şekilde ortaya çıktı — iOS'ta konuşma
+    // tanıma normalde Apple'ın kendi Speech framework'ü üzerinden gayet destekleniyor).
+    if (Platform.OS === 'android') {
+      try {
+        const servisler = ExpoSpeechRecognitionModule.getSpeechRecognitionServices();
+        if (servisler.length === 0) {
+          setSonTranscript('Konuşma tanıma bu cihazda desteklenmiyor');
+          setDur('kapali');
+          return;
+        }
+      } catch {}
+    }
 
     const izin = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
     if (!izin.granted) {
