@@ -34,8 +34,22 @@ jobs:
           LANG: en_US.UTF-8
           LC_ALL: en_US.UTF-8
 
+      - name: Collect raw xcodebuild logs (always, for debugging failures)
+        if: always()
+        run: |
+          mkdir -p ./ios-raw-logs
+          find /var/folders -path "*eas-build-local-nodejs*/logs/*.log" -exec cp {} ./ios-raw-logs/ \; 2>/dev/null || true
+          find /var/folders -name "*.xcresult" -exec cp -R {} ./ios-raw-logs/ \; 2>/dev/null || true
+          ls -la ./ios-raw-logs || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-raw-logs
+          path: ./ios-raw-logs
+          if-no-files-found: ignore
+
       - uses: actions/upload-artifact@v4
         with:
           name: pera-ios-ipa
           path: pera-ios.ipa
-# tetikle: 1783315659
