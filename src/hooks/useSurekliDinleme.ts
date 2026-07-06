@@ -18,15 +18,18 @@ const KONUSMA_MODU_SURESI = 18000; // PERA cevap verdikten sonra "pera" demeden 
 // (PERA'nın kendi sesinin mikrofona karışması) yanlışlıkla kesinti tetiklemesini
 // azaltır. Gerçek cihazda ayarlanması/ince ayar gerekebilir (bkz. AGENTS.md notu).
 const KESINTI_MIN_KELIME = 2;
-// SESSİZLİK TESPİTİYLE stop() TETİKLEME: expo-speech-recognition'ın stop() (nazikçe
+// SESSİZLİK TESPİTİYLE FİNAL SONUÇ ZORLAMA: expo-speech-recognition'ın stop() (nazikçe
 // bitir, final sonucu DÖNDÜR) ve abort() (iptal et, sonuç DÖNDÜRME) diye iki ayrı
 // fonksiyonu var. Bazı Android/OEM (canlı testte Xiaomi/MIUI'de doğrulandı) konuşma
-// tanıma implementasyonları, "continuous" modda bile, kullanıcı sessiz kalınca
-// final sonucu KENDİLİĞİNDEN ÜRETMİYOR — sadece ara (interim) transkriptler birikip
-// sonra sessizce 'end' event'i geliyor, söylenen hiçbir şey işlenmiyor. Çözüm: son
-// interim sonuçtan bu kadar süre geçip yeni bir şey gelmezse stop() ÇAĞIRARAK final
-// sonucu zorla istemek.
-const SESSIZLIK_STOP_MS = 1300;
+// tanıma implementasyonları, "continuous" modda bile, kullanıcı sessiz kalınca final
+// sonucu KENDİLİĞİNDEN ÜRETMİYOR (hatta stop() çağrılsa bile) — sadece ara (interim)
+// transkriptler birikip sonra sessizce 'end' event'i geliyor, söylenen hiçbir şey
+// işlenmiyor. Çözüm: son interim sonuçtan bu kadar süre geçip yeni bir şey gelmezse
+// elimizdeki son interim'i KENDİMİZ final sonuç gibi işliyoruz (bkz. bekleyenInterimiIsle).
+// SÜRE NOTU: ilk denemede 1300ms ile canlı testte (iOS) "Pera bu", "Pera bekl" gibi
+// cümlenin ortasında ERKEN KESİLDİĞİ görüldü (kullanıcı "Pera" deyip kısa bir duraklama
+// yapınca hemen final sayılıyordu) — 2000ms'e çıkarıldı.
+const SESSIZLIK_STOP_MS = 2000;
 
 const ERP_TERIMLER = [
   'pera', 'sipariş', 'fatura', 'stok', 'ürün', 'müşteri', 'cari',
@@ -82,6 +85,7 @@ export function useSurekliDinleme(
     restartTimer:    null as ReturnType<typeof setTimeout> | null,
     wakeTimer:       null as ReturnType<typeof setTimeout> | null,
     sessizlikTimer:  null as ReturnType<typeof setTimeout> | null,
+    sonInterim:      '', // en son ara (interim) transkript — bkz. sessizlikTimerKur notu
   });
   r.current.peraKonusuyorMu = peraKonusuyorMu;
 
@@ -138,18 +142,38 @@ export function useSurekliDinleme(
     }
   }, []);
 
-  // Son ara (interim) sonuçtan bu kadar süre geçip yeni bir şey gelmezse stop()
-  // çağırarak final sonucu zorla ister — bkz. SESSIZLIK_STOP_MS tanımındaki not.
+  // Son ara (interim) sonuçtan bu kadar süre geçip yeni bir şey gelmezse: ÖNCE stop()
+  // dener (bazı cihazlarda gerçekten final sonuç üretir), AMA canlı testte (Xiaomi/MIUI)
+  // stop() bile final sonuç üretmeden sessizce session'ı bitirdiği görüldü — bu yüzden
+  // native finalizasyona GÜVENMEK YERİNE, elimizdeki SON ARA TRANSKRİPTİ kendimiz final
+  // sonuç gibi işliyoruz (abort() ile session'ı temiz kapatıp sonucIsleRef'e veriyoruz).
+  // Gerçek bir isFinal:true event'i BU SAYAÇ ATEŞLENMEDEN önce gelirse (bazı cihazlarda
+  // normal çalışır) zaten kendi yolundan işlenir ve bu sayaç temizlenir — çift işleme
+  // riski yok (abort() sonrası başka event beklenmez).
+  // Bekleyen (varsa) son ara transkripti final sonuç gibi işler. Hem sessizlik
+  // sayacından hem de (sayaç ateşlenmeden native session bitmiş olabileceği ihtimaline
+  // karşı, güvenlik amaçlı) 'end' event handler'ından çağrılır — sonInterim işlendikten
+  // hemen sonra temizlendiği için çift çağrıda ikinci çağrı hiçbir şey yapmaz.
+  const bekleyenInterimiIsle = useCallback(() => {
+    const bekleyenTranskript = r.current.sonInterim;
+    r.current.sonInterim = '';
+    if (bekleyenTranskript) {
+      console.log('[PERA-SR] bekleyen ara sonuç final olarak işleniyor:', JSON.stringify(bekleyenTranskript));
+      sonucIsleRef.current?.(bekleyenTranskript);
+    }
+  }, []);
+
   const sessizlikTimerKur = useCallback(() => {
     sessizlikTimerTemizle();
     r.current.sessizlikTimer = setTimeout(() => {
       r.current.sessizlikTimer = null;
-      if (r.current.calisiyor) {
-        console.log('[PERA-SR] sessizlik tespit edildi, stop() çağrılıyor (final sonuç için)');
-        try { ExpoSpeechRecognitionModule.stop(); } catch {}
+      if (r.current.calisiyor && r.current.sonInterim) {
+        console.log('[PERA-SR] sessizlik tespit edildi, session temiz kapatılıyor');
+        try { ExpoSpeechRecognitionModule.abort(); } catch {}
+        bekleyenInterimiIsle();
       }
     }, SESSIZLIK_STOP_MS);
-  }, [sessizlikTimerTemizle]);
+  }, [sessizlikTimerTemizle, bekleyenInterimiIsle]);
 
   // ── Recognizer başlat ──────────────────────────────────────────────────────
   const baslatRef = useRef<(() => Promise<void>) | undefined>(undefined);
@@ -281,10 +305,12 @@ export function useSurekliDinleme(
     if (!transcript) return;
     if (e.isFinal) {
       sessizlikTimerTemizle();
+      r.current.sonInterim = '';
       sonucIsleRef.current?.(transcript);
     } else {
       setDur('konusuyor');
       setSonTranscript(transcript);
+      r.current.sonInterim = transcript;
       // Her yeni ara sonuçta sayaç sıfırdan başlar — kullanıcı konuşmaya devam
       // ettiği sürece stop() tetiklenmez, ancak SESSIZLIK_STOP_MS boyunca yeni
       // bir şey gelmezse (konuşma bitti demektir) final sonuç zorla istenir.
@@ -296,6 +322,7 @@ export function useSurekliDinleme(
     console.log('[PERA-SR] event: error', e.error, e.message);
     r.current.calisiyor = false;
     sessizlikTimerTemizle();
+    r.current.sonInterim = '';
 
     if (e.error === 'not-allowed') {
       setSonTranscript('Mikrofon izni reddedildi');
@@ -342,6 +369,10 @@ export function useSurekliDinleme(
     console.log('[PERA-SR] event: end');
     r.current.calisiyor = false;
     sessizlikTimerTemizle();
+    // GÜVENLİK AĞI: session, sessizlik sayacı hiç ateşlenmeden bitmiş olabilir (ör.
+    // native taraf beklenenden erken sonlandırdıysa) — elde ara sonuç varsa yine de
+    // işle, aksi halde söylenen tamamen kaybolur.
+    bekleyenInterimiIsle();
     if (r.current.etkin) planlaRestart();
   });
 
