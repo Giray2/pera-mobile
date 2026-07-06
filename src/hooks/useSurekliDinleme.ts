@@ -30,6 +30,13 @@ const KESINTI_MIN_KELIME = 2;
 // cümlenin ortasında ERKEN KESİLDİĞİ görüldü (kullanıcı "Pera" deyip kısa bir duraklama
 // yapınca hemen final sayılıyordu) — 2000ms'e çıkarıldı.
 const SESSIZLIK_STOP_MS = 2000;
+// ONAY SESİ BİTTİKTEN SONRA KORUMA SÜRESİ: canlı testte (iOS), onay ifadesi
+// ("Evet, dinliyorum" vb.) TAM BİTTİĞİ ANDA dinlemeyi tekrar açmak yetmedi — sesin
+// kuyruğu/yankısı (oda akustiği, hoparlör-mikrofon mesafesi) hâlâ havada asılı
+// kalıp yeni açılan oturum tarafından yakalanabiliyordu. ChatGPT'nin sesli modunda
+// da benzer bir "konuşma bitince hemen dinleme" değil, kısa bir tampon süre olduğu
+// gözlemine dayanarak eklendi.
+const ONAY_KORUMA_MS = 400;
 
 const ERP_TERIMLER = [
   'pera', 'sipariş', 'fatura', 'stok', 'ürün', 'müşteri', 'cari',
@@ -85,6 +92,7 @@ export function useSurekliDinleme(
     restartTimer:    null as ReturnType<typeof setTimeout> | null,
     wakeTimer:       null as ReturnType<typeof setTimeout> | null,
     sessizlikTimer:  null as ReturnType<typeof setTimeout> | null,
+    onayKorumaTimer: null as ReturnType<typeof setTimeout> | null,
     sonInterim:      '', // en son ara (interim) transkript — bkz. sessizlikTimerKur notu
     onayOkunuyor:    false, // "Hey Pera" onay ifadesi ("Buyurun" vb.) şu an TTS ile çalıyor mu
   });
@@ -137,7 +145,16 @@ export function useSurekliDinleme(
   // görüldü) — ChatScreen bu onay ifadesini seslendirirken true, bitince false
   // çağırır; true olduğu sürece HİÇBİR sonuç işlenmez (bkz. sonucIsleRef).
   const onayDurumunuAyarla = useCallback((aktif: boolean) => {
-    r.current.onayOkunuyor = aktif;
+    if (r.current.onayKorumaTimer) { clearTimeout(r.current.onayKorumaTimer); r.current.onayKorumaTimer = null; }
+    if (aktif) {
+      r.current.onayOkunuyor = true;
+    } else {
+      // Hemen kapatma — kısa bir koruma süresi sonra kapat (bkz. ONAY_KORUMA_MS notu).
+      r.current.onayKorumaTimer = setTimeout(() => {
+        r.current.onayKorumaTimer = null;
+        r.current.onayOkunuyor = false;
+      }, ONAY_KORUMA_MS);
+    }
   }, []);
 
   const wakeTemizle = useCallback(() => {
