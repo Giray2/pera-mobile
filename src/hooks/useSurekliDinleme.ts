@@ -135,15 +135,19 @@ export function useSurekliDinleme(
     if (Platform.OS === 'android') {
       try {
         const servisler = ExpoSpeechRecognitionModule.getSpeechRecognitionServices();
+        console.log('[PERA-SR] mevcut servisler:', JSON.stringify(servisler));
         if (servisler.length === 0) {
           setSonTranscript('Konuşma tanıma bu cihazda desteklenmiyor');
           setDur('kapali');
           return;
         }
-      } catch {}
+      } catch (e) {
+        console.log('[PERA-SR] getSpeechRecognitionServices HATA:', e instanceof Error ? e.message : String(e));
+      }
     }
 
     const izin = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+    console.log('[PERA-SR] izin durumu:', JSON.stringify(izin));
     if (!izin.granted) {
       setSonTranscript('Mikrofon izni yok!');
       setDur('kapali');
@@ -233,9 +237,17 @@ export function useSurekliDinleme(
     if (!r.current.wakeAktif) setSonTranscript('"pera" deyin...');
   });
 
+  // TANI AMAÇLI (geçici): mikrofon donanımı gerçekten ses alıyor mu, yoksa hiç
+  // tetiklenmiyor mu ayırt etmek için — 'result' hiç gelmese bile bu event'lerin
+  // gelip gelmediği "ses donanıma ulaşıyor mu" sorusunu ayrı test eder.
+  useSpeechRecognitionEvent('audiostart', () => console.log('[PERA-SR] event: audiostart (mikrofon donanımı aktif)'));
+  useSpeechRecognitionEvent('soundstart', () => console.log('[PERA-SR] event: soundstart (ses algılandı)'));
+  useSpeechRecognitionEvent('speechstart', () => console.log('[PERA-SR] event: speechstart (konuşma algılandı)'));
+
   useSpeechRecognitionEvent('result', (e) => {
     if (!r.current.etkin) return;
     const transcript = e.results?.[0]?.transcript ?? '';
+    console.log('[PERA-SR] result event, isFinal:', e.isFinal, 'transcript:', JSON.stringify(transcript));
     if (!transcript) return;
     if (e.isFinal) {
       sonucIsleRef.current?.(transcript);
