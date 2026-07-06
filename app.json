@@ -34,6 +34,7 @@
       "package": "com.pakset.pera",
       "usesCleartextTraffic": true,
       "versionCode": 20,
+      "softwareKeyboardLayoutMode": "resize",
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#0A1628",

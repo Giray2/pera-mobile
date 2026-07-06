@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView,
-  Platform, Alert,
+  Platform, Alert, Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Speech from 'expo-speech';
@@ -10,10 +10,8 @@ import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-aud
 import * as SecureStore from 'expo-secure-store';
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../hooks/useChat';
-import { useAudioRecord } from '../hooks/useAudioRecord';
 import { useSurekliDinleme } from '../hooks/useSurekliDinleme';
 import { MessageBubble } from '../components/MessageBubble';
-import { AudioRecordButton } from '../components/AudioRecordButton';
 import { TypingIndicator } from '../components/TypingIndicator';
 import { ENV } from '../config/env';
 import type { Mesaj, SohbetKayit } from '../hooks/useChat';
@@ -91,8 +89,8 @@ export default function ChatScreen() {
   const listRef = useRef<FlatList<Mesaj>>(null);
 
   const {
-    mesajlar, setMesajlar, yukleniyor, sesYukleniyor,
-    gecmis, gecmisYukle, yeniSohbet, sor, sesleGonder, tekrarDene,
+    mesajlar, setMesajlar, yukleniyor,
+    gecmis, gecmisYukle, yeniSohbet, sor, tekrarDene,
   } = useChat();
 
   // AŞAMA 2 (sunucu TTS): PERA-API /api/tts/seslendir üzerinden Microsoft Edge Neural
@@ -101,10 +99,23 @@ export default function ChatScreen() {
   // başarısız olursa (mikroservis henüz ayakta değilse vb.) AŞAMA 1'e (expo-speech,
   // aşağıdaki sesCihazdaOku) otomatik düşülür.
   const audioPlayerRef = useRef<AudioPlayer | null>(null);
+  // playbackStatusUpdate dinleyicisi — sesDurdur da bunu temizlemeli, yoksa
+  // remove() edilmiş bir player'a bağlı "yetim" dinleyici birikir (uzun sürekli-mod
+  // oturumlarında listener leak riski).
+  const dinleyiciRef = useRef<{ remove: () => void } | null>(null);
+  // Hızlı art arda sesliOku çağrılarında (ör. barge-in ile üst üste soru) önceki
+  // çağrının async (SecureStore/network) kısmı geç tamamlanırsa "eski" player'ın
+  // play()/bitti() çalışmasını engellemek için nesil sayacı.
+  const sesliOkuIdRef = useRef(0);
 
   // sesDurdur ve sesliOku önce tanımlanıyor (sorVeTTS bağımlı)
   const sesDurdur = useCallback(() => {
     Speech.stop();
+    sesliOkuIdRef.current += 1; // her türlü askıdaki eski çağrıyı geçersiz kıl
+    if (dinleyiciRef.current) {
+      try { dinleyiciRef.current.remove(); } catch {}
+      dinleyiciRef.current = null;
+    }
     if (audioPlayerRef.current) {
       try { audioPlayerRef.current.pause(); audioPlayerRef.current.remove(); } catch {}
       audioPlayerRef.current = null;
@@ -155,22 +166,42 @@ export default function ChatScreen() {
 
   const sesliOku = useCallback(async (metin: string) => {
     sesDurdur();
+    const cagriId = ++sesliOkuIdRef.current; // sesDurdur zaten +1 yaptı ama emin olmak için burada da artır
     if (konusuyorTimerRef.current) clearTimeout(konusuyorTimerRef.current);
     setKonusuyor(true);
+
+    let zatenBitti = false; // bitti() birden fazla yoldan (timeout/error/didJustFinish) tetiklenebilir — idempotent yap
     const bitti = () => {
+      if (zatenBitti) return;
+      zatenBitti = true;
       if (konusuyorTimerRef.current) { clearTimeout(konusuyorTimerRef.current); konusuyorTimerRef.current = null; }
-      audioPlayerRef.current = null;
+      if (audioPlayerRef.current) audioPlayerRef.current = null;
+      dinleyiciRef.current = null;
       setKonusuyor(false);
       // KONUŞMA MODU: PERA cevabını bitirince, sürekli mod açıksa kullanıcı "pera"
       // demeden 18 saniye içinde devam sorusu sorabilsin.
       if (surekliModRef.current) konusmaModunuAcRef.current();
     };
-    // maksimum 30 sn sonra her durumda sıfırla
-    konusuyorTimerRef.current = setTimeout(bitti, 30000);
+    const zamanAsimindaBitir = () => {
+      if (cagriId === sesliOkuIdRef.current) bitti();
+    };
+    // maksimum 30 sn sonra her durumda sıfırla — cihaz TTS'e düşüldüğünde de
+    // (aşağıda) yeniden kurulur, tek bir "toplam konuşma" süresi garanti edilir.
+    konusuyorTimerRef.current = setTimeout(zamanAsimindaBitir, 30000);
 
     const metinHazir = ttsMetnHazirla(metin);
+    const buCagriGecerliMi = () => cagriId === sesliOkuIdRef.current;
+
+    const cihazaDus = () => {
+      if (!buCagriGecerliMi()) return; // sesDurdur/yeni bir sesliOku çağrısı bu çağrıyı zaten geçersiz kıldı
+      if (konusuyorTimerRef.current) clearTimeout(konusuyorTimerRef.current);
+      konusuyorTimerRef.current = setTimeout(zamanAsimindaBitir, 30000);
+      sesCihazdaOku(metinHazir, bitti);
+    };
+
     try {
       const token = await SecureStore.getItemAsync(ENV.TOKEN_KEY);
+      if (!buCagriGecerliMi()) return; // beklerken sesDurdur/yeni soru geldi, bu çağrı artık geçersiz
       const url = `${ENV.API_BASE_URL}/api/tts/seslendir?metin=${encodeURIComponent(metinHazir)}`;
       const player = createAudioPlayer({
         uri: url,
@@ -182,25 +213,30 @@ export default function ChatScreen() {
       });
       audioPlayerRef.current = player;
       const dinleyici = player.addListener('playbackStatusUpdate', (status) => {
+        if (!buCagriGecerliMi()) return; // eski çağrı — sesDurdur zaten player/dinleyiciyi temizledi
         if (status.error) {
           console.log('[PERA-TTS] sunucu TTS hatası, cihaz TTS\'ine düşülüyor:', status.error);
           dinleyici.remove();
+          dinleyiciRef.current = null;
           try { player.remove(); } catch {}
           if (audioPlayerRef.current === player) audioPlayerRef.current = null;
-          sesCihazdaOku(metinHazir, bitti);
+          cihazaDus();
           return;
         }
         if (status.didJustFinish) {
           dinleyici.remove();
+          dinleyiciRef.current = null;
           try { player.remove(); } catch {}
           if (audioPlayerRef.current === player) bitti();
         }
       });
+      dinleyiciRef.current = dinleyici;
       await setAudioModeAsync({ playsInSilentMode: true });
+      if (!buCagriGecerliMi()) { try { player.remove(); } catch {} return; }
       player.play();
     } catch (e) {
       console.log('[PERA-TTS] sunucu TTS başlatılamadı, cihaz TTS\'ine düşülüyor:', e instanceof Error ? e.message : String(e));
-      sesCihazdaOku(metinHazir, bitti);
+      cihazaDus();
     }
   }, [sesDurdur, sesCihazdaOku]);
 
@@ -214,20 +250,22 @@ export default function ChatScreen() {
     if (cevap && sesliModRef.current) sesliOku(cevap);
   }, [sor, sesliOku, sesDurdur]);
 
-  const sesleGonderVeTTS = useCallback(async (uri: string) => {
-    sesDurdur();
-    const cevap = await sesleGonder(uri);
-    if (cevap && sesliModRef.current) sesliOku(cevap);
-  }, [sesleGonder, sesliOku, sesDurdur]);
-
-  const { kayitYapiliyor, basla, bitir } = useAudioRecord(sesleGonderVeTTS);
-
+  // TEK MİKROFON: önceden ayrı bir "bas-konuş" (push-to-talk) butonu da vardı —
+  // kullanıcı isteğiyle kaldırıldı, tek ses girişi yolu artık sürekli/eller-serbest
+  // mod (surekliMod). Kullanıcı istediğinde zaten dokunup durdurabiliyor (header
+  // mikrofon ikonu / "PERA konuşuyor" çubuğu), ayrı bir moda gerek yok.
   // BARGE-IN: !konusuyor KALDIRILDI — PERA konuşurken de dinleyici çalışmaya devam
   // etmeli ki kullanıcı araya girip konuşabilsin (aşağıdaki peraKonusuyorMu/onKesinti
   // ile useSurekliDinleme bunu "kesinti" olarak işler, wake-word aramaz).
+  // !yukleniyor DA KALDIRILDI: dinleyici her soru cevaplanırken (yukleniyor true/false
+  // olunca) abort edilip hemen yeniden başlatılıyordu — native abort() asenkron olduğu
+  // için hemen ardından gelen start() çağrısı bazen sessizce takılıp kalıyordu (canlı
+  // testte "ikinci sorudan sonra kilitlenme" olarak gözlemlendi). Artık dinleyici
+  // sadece kullanıcı sürekli modu açıp kapatınca başlıyor/duruyor, soru-cevap döngüsü
+  // boyunca HİÇ abort edilmiyor.
   const { durum: dinlemeDurum, sonTranscript, konusmaModunuAc } = useSurekliDinleme(
     sorVeTTS,
-    surekliMod && !kayitYapiliyor && !yukleniyor && !sesYukleniyor,
+    surekliMod,
     konusuyor,
     sesDurdur,
     // "Hey Pera" tek başına söylenince sesli onay — kullanıcı wake-word'ün
@@ -246,6 +284,7 @@ export default function ChatScreen() {
     const metin = yazilan.trim();
     if (!metin || yukleniyor) return;
     setYazilan('');
+    Keyboard.dismiss(); // Android'de gönderince klavye acik kalip icerigin ustunde durmasin
     sesDurdur();
     const cevap = await sor(metin);
     if (cevap && sesliModRef.current) sesliOku(cevap);
@@ -258,7 +297,7 @@ export default function ChatScreen() {
     ]);
   };
 
-  const bos = mesajlar.length === 0 && !yukleniyor && !sesYukleniyor;
+  const bos = mesajlar.length === 0 && !yukleniyor;
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.container}>
@@ -338,20 +377,17 @@ export default function ChatScreen() {
             <View style={s.bosluk}>
               <Text style={s.boslukText}>Merhaba {kullanici?.adi || ''}!</Text>
               <Text style={s.boslukAlt}>ERP verileriniz hakkında soru sorabilirsiniz.</Text>
-              <Text style={s.boslukHint}>🎤 "pera" de  ·  bas ve konuş  ·  ✍️ yaz</Text>
+              <Text style={s.boslukHint}>🎤 "pera" de  ·  ✍️ yaz</Text>
             </View>
           ) : null
         }
       />
 
-      {/* Typing / STT yükleniyor */}
-      {(yukleniyor || sesYukleniyor) && (
+      {/* Typing */}
+      {yukleniyor && (
         <View style={s.typingRow}>
           <Text style={s.avatar}>🤖</Text>
-          {sesYukleniyor
-            ? <Text style={s.sesYuklText}>Ses işleniyor...</Text>
-            : <TypingIndicator />
-          }
+          <TypingIndicator />
         </View>
       )}
 
@@ -366,39 +402,23 @@ export default function ChatScreen() {
         </View>
       )}
 
-      {/* Kayıt çubuğu */}
-      {kayitYapiliyor && (
-        <View style={s.dinleniyorBar}>
-          <Text style={s.dinleniyorIcon}>🎙️</Text>
-          <Text style={s.dinleniyorText}>Dinleniyor... bırak → gönder</Text>
-        </View>
-      )}
-
       {/* Input satırı */}
       <View style={[s.inputRow, { paddingBottom: Math.max(insets.bottom, 12) }]}>
         <TextInput
           style={s.input}
-          placeholder="Soru sorun veya 🎤 basılı tutun..."
+          placeholder="Soru sorun veya 🎤 ile konuşun..."
           placeholderTextColor="#546e7a"
           value={yazilan}
           onChangeText={setYazilan}
           multiline
           maxLength={500}
-          editable={!kayitYapiliyor && !sesYukleniyor}
           returnKeyType="send"
           onSubmitEditing={gonder}
         />
-        <AudioRecordButton
-          kayitYapiliyor={kayitYapiliyor}
-          sesYukleniyor={sesYukleniyor}
-          onPressIn={basla}
-          onPressOut={bitir}
-          disabled={yukleniyor || surekliMod}
-        />
         <TouchableOpacity
-          style={[s.sendBtn, (!yazilan.trim() || yukleniyor || kayitYapiliyor) && s.sendDisabled]}
+          style={[s.sendBtn, (!yazilan.trim() || yukleniyor) && s.sendDisabled]}
           onPress={gonder}
-          disabled={!yazilan.trim() || yukleniyor || kayitYapiliyor}
+          disabled={!yazilan.trim() || yukleniyor}
         >
           <Text style={s.sendIcon}>➤</Text>
         </TouchableOpacity>
@@ -437,13 +457,9 @@ const s = StyleSheet.create({
   boslukHint:   { color: '#37474f', fontSize: 13, marginTop: 12 },
   typingRow:    { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 4, gap: 8 },
   avatar:       { fontSize: 20 },
-  sesYuklText:  { color: '#4fc3f7', fontSize: 13 },
   hizliContainer:{ paddingHorizontal: 16, paddingBottom: 8, gap: 6 },
   hizliBtn:     { backgroundColor: '#1c2a36', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: '#263545' },
   hizliText:    { color: '#90caf9', fontSize: 13 },
-  dinleniyorBar:{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#120820', paddingHorizontal: 16, paddingVertical: 10, gap: 10, borderTopWidth: 1, borderTopColor: '#6a1b9a' },
-  dinleniyorIcon:{ fontSize: 20 },
-  dinleniyorText:{ color: '#ce93d8', fontSize: 13 },
   inputRow:     { flexDirection: 'row', padding: 10, backgroundColor: '#1c2a36', alignItems: 'flex-end', gap: 8 },
   input:        { flex: 1, backgroundColor: '#263545', color: '#eceff1', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, maxHeight: 120, borderWidth: 1, borderColor: '#37474f' },
   sendBtn:      { backgroundColor: '#0288d1', width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },

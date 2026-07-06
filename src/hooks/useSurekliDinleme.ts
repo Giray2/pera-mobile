@@ -108,7 +108,12 @@ export function useSurekliDinleme(
   const konusmaModunuAc = useCallback(() => {
     wakeAktifYap(KONUSMA_MODU_SURESI);
     setSonTranscript('Dinliyorum, sorabilirsiniz...');
-  }, [wakeAktifYap]);
+    // Dinleyici artık soru-cevap arasında hiç abort edilmiyor (bkz. ChatScreen), bu
+    // yüzden native 'start' event'i tekrar tetiklenip durumu 'bekliyor'a döndürmüyor
+    // — önceki cevabın 'isleniyor' durumunda ekranda takılı kalmaması için burada
+    // elle sıfırlanıyor.
+    setDur('bekliyor');
+  }, [wakeAktifYap, setDur]);
 
   const wakeTemizle = useCallback(() => {
     wakeTimerTemizle();

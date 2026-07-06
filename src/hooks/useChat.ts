@@ -34,6 +34,11 @@ export function useChat() {
 
   const gecmisRef = useRef<ChatGecmisItem[]>([]);
   const sohbetGecmisRef = useRef<SohbetKayit[]>([]);
+  // React state (yukleniyor) senkron degil - iki hizli ust uste 'sor' cagrisi
+  // (ayni event-loop tick'inde, ör. barge-in ile art arda soru) her ikisi de
+  // henuz guncellenmemis "false" degerini gorebilir. Bu ref, ilk cagrida ANINDA
+  // set edilerek ikinci cagriyi state re-render'i beklemeden engeller.
+  const yukleniyorRef = useRef(false);
 
   const gecmisYukle = useCallback(async () => {
     try {
@@ -74,7 +79,8 @@ export function useChat() {
 
   const sor = useCallback(
     async (metin: string): Promise<string | null> => {
-      if (!metin.trim() || yukleniyor) return null;
+      if (!metin.trim() || yukleniyorRef.current) return null;
+      yukleniyorRef.current = true;
 
       mesajEkle({ tip: 'kullanici', metin: metin.trim() });
 
