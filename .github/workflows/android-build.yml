@@ -1,0 +1,40 @@
+name: Android Build (EAS local)
+
+# EAS ücretsiz planın aylık build kotasını (bu ay tükendi, 1 Ağustos'a kadar
+# yenilenmiyor) tüketmemek için, gerçek Gradle derlemesi burada (GitHub Actions'ın
+# ubuntu runner'ında, Android SDK/JDK önceden kurulu gelir) yapılır — EXPO_TOKEN
+# sadece keystore'u EAS'ın uzak deposundan çekmek için kullanılır, EAS'ın bulut
+# build kuyruğu hiç kullanılmaz.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Android (local)
+        run: eas build --platform android --local --profile preview --non-interactive --output ./pera-android.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pera-android-apk
+          path: pera-android.apk
