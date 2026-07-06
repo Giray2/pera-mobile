@@ -38,3 +38,4 @@ jobs:
         with:
           name: pera-ios-ipa
           path: pera-ios.ipa
+# tetikle: 1783315659
