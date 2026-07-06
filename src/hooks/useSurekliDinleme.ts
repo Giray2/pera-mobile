@@ -28,8 +28,12 @@ const KESINTI_MIN_KELIME = 2;
 // elimizdeki son interim'i KENDİMİZ final sonuç gibi işliyoruz (bkz. bekleyenInterimiIsle).
 // SÜRE NOTU: ilk denemede 1300ms ile canlı testte (iOS) "Pera bu", "Pera bekl" gibi
 // cümlenin ortasında ERKEN KESİLDİĞİ görüldü (kullanıcı "Pera" deyip kısa bir duraklama
-// yapınca hemen final sayılıyordu) — 2000ms'e çıkarıldı.
-const SESSIZLIK_STOP_MS = 2000;
+// yapınca hemen final sayılıyordu) — 2000ms'e çıkarıldı. Canlı testte 2000ms'de de
+// AYNI SINIF sorun tekrar görüldü: ikinci soruda ("Son bir ayda...") kullanıcı doğal
+// bir duraklama yapınca cümle tamamlanmadan finalize edildi. Gerçek konuşmada kelime
+// arası/cümle ortası duraklamalar 2sn'yi rahatça geçebiliyor — ChatGPT'nin sesli
+// modundaki gibi daha cömert bir eşik gerekiyor, 3000ms'e çıkarıldı.
+const SESSIZLIK_STOP_MS = 3000;
 // ONAY SESİ BİTTİKTEN SONRA KORUMA SÜRESİ: canlı testte (iOS), onay ifadesi
 // ("Evet, dinliyorum" vb.) TAM BİTTİĞİ ANDA dinlemeyi tekrar açmak yetmedi — sesin
 // kuyruğu/yankısı (oda akustiği, hoparlör-mikrofon mesafesi) hâlâ havada asılı
