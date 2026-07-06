@@ -18,6 +18,15 @@ const KONUSMA_MODU_SURESI = 18000; // PERA cevap verdikten sonra "pera" demeden 
 // (PERA'nın kendi sesinin mikrofona karışması) yanlışlıkla kesinti tetiklemesini
 // azaltır. Gerçek cihazda ayarlanması/ince ayar gerekebilir (bkz. AGENTS.md notu).
 const KESINTI_MIN_KELIME = 2;
+// SESSİZLİK TESPİTİYLE stop() TETİKLEME: expo-speech-recognition'ın stop() (nazikçe
+// bitir, final sonucu DÖNDÜR) ve abort() (iptal et, sonuç DÖNDÜRME) diye iki ayrı
+// fonksiyonu var. Bazı Android/OEM (canlı testte Xiaomi/MIUI'de doğrulandı) konuşma
+// tanıma implementasyonları, "continuous" modda bile, kullanıcı sessiz kalınca
+// final sonucu KENDİLİĞİNDEN ÜRETMİYOR — sadece ara (interim) transkriptler birikip
+// sonra sessizce 'end' event'i geliyor, söylenen hiçbir şey işlenmiyor. Çözüm: son
+// interim sonuçtan bu kadar süre geçip yeni bir şey gelmezse stop() ÇAĞIRARAK final
+// sonucu zorla istemek.
+const SESSIZLIK_STOP_MS = 1300;
 
 const ERP_TERIMLER = [
   'pera', 'sipariş', 'fatura', 'stok', 'ürün', 'müşteri', 'cari',
@@ -72,6 +81,7 @@ export function useSurekliDinleme(
     peraKonusuyorMu: false,
     restartTimer:    null as ReturnType<typeof setTimeout> | null,
     wakeTimer:       null as ReturnType<typeof setTimeout> | null,
+    sessizlikTimer:  null as ReturnType<typeof setTimeout> | null,
   });
   r.current.peraKonusuyorMu = peraKonusuyorMu;
 
@@ -120,6 +130,26 @@ export function useSurekliDinleme(
     wakeTimerTemizle();
     r.current.wakeAktif = false;
   }, [wakeTimerTemizle]);
+
+  const sessizlikTimerTemizle = useCallback(() => {
+    if (r.current.sessizlikTimer) {
+      clearTimeout(r.current.sessizlikTimer);
+      r.current.sessizlikTimer = null;
+    }
+  }, []);
+
+  // Son ara (interim) sonuçtan bu kadar süre geçip yeni bir şey gelmezse stop()
+  // çağırarak final sonucu zorla ister — bkz. SESSIZLIK_STOP_MS tanımındaki not.
+  const sessizlikTimerKur = useCallback(() => {
+    sessizlikTimerTemizle();
+    r.current.sessizlikTimer = setTimeout(() => {
+      r.current.sessizlikTimer = null;
+      if (r.current.calisiyor) {
+        console.log('[PERA-SR] sessizlik tespit edildi, stop() çağrılıyor (final sonuç için)');
+        try { ExpoSpeechRecognitionModule.stop(); } catch {}
+      }
+    }, SESSIZLIK_STOP_MS);
+  }, [sessizlikTimerTemizle]);
 
   // ── Recognizer başlat ──────────────────────────────────────────────────────
   const baslatRef = useRef<(() => Promise<void>) | undefined>(undefined);
@@ -250,16 +280,22 @@ export function useSurekliDinleme(
     console.log('[PERA-SR] result event, isFinal:', e.isFinal, 'transcript:', JSON.stringify(transcript));
     if (!transcript) return;
     if (e.isFinal) {
+      sessizlikTimerTemizle();
       sonucIsleRef.current?.(transcript);
     } else {
       setDur('konusuyor');
       setSonTranscript(transcript);
+      // Her yeni ara sonuçta sayaç sıfırdan başlar — kullanıcı konuşmaya devam
+      // ettiği sürece stop() tetiklenmez, ancak SESSIZLIK_STOP_MS boyunca yeni
+      // bir şey gelmezse (konuşma bitti demektir) final sonuç zorla istenir.
+      sessizlikTimerKur();
     }
   });
 
   useSpeechRecognitionEvent('error', (e) => {
     console.log('[PERA-SR] event: error', e.error, e.message);
     r.current.calisiyor = false;
+    sessizlikTimerTemizle();
 
     if (e.error === 'not-allowed') {
       setSonTranscript('Mikrofon izni reddedildi');
@@ -305,6 +341,7 @@ export function useSurekliDinleme(
   useSpeechRecognitionEvent('end', () => {
     console.log('[PERA-SR] event: end');
     r.current.calisiyor = false;
+    sessizlikTimerTemizle();
     if (r.current.etkin) planlaRestart();
   });
 
@@ -317,6 +354,7 @@ export function useSurekliDinleme(
     } else {
       if (r.current.restartTimer) { clearTimeout(r.current.restartTimer); r.current.restartTimer = null; }
       wakeTimerTemizle();
+      sessizlikTimerTemizle();
       r.current.calisiyor = false;
       r.current.wakeAktif = false;
       try { ExpoSpeechRecognitionModule.abort(); } catch {}
@@ -327,9 +365,10 @@ export function useSurekliDinleme(
       r.current.etkin = false;
       if (r.current.restartTimer) { clearTimeout(r.current.restartTimer); r.current.restartTimer = null; }
       wakeTimerTemizle();
+      sessizlikTimerTemizle();
       try { ExpoSpeechRecognitionModule.abort(); } catch {}
     };
-  }, [etkin, wakeTemizle, wakeTimerTemizle]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [etkin, wakeTemizle, wakeTimerTemizle, sessizlikTimerTemizle]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { durum, sonTranscript, konusmaModunuAc };
 }
