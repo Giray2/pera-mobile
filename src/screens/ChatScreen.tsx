@@ -128,6 +128,9 @@ export default function ChatScreen() {
   // KONUŞMA MODU: useSurekliDinleme'nin konusmaModunuAc'ı henüz tanımlanmadan
   // (aşağıda) sesliOku burada oluşturuluyor — ref ile "ileri referans" çözülüyor.
   const konusmaModunuAcRef = useRef<() => void>(() => {});
+  // "Hey Pera" onay ifadesi çalarken dinleyicinin cihazın kendi sesini yeni komut
+  // sanmaması için — sesliOku bunu true/false çağırır (bkz. onayDurumunuAyarla notu).
+  const onayDurumunuAyarlaRef = useRef<(aktif: boolean) => void>(() => {});
   const surekliModRef = useRef(surekliMod);
   surekliModRef.current = surekliMod;
 
@@ -164,11 +167,15 @@ export default function ChatScreen() {
     });
   }, []);
 
-  const sesliOku = useCallback(async (metin: string) => {
+  // onayMi=true: "Hey Pera" tek başına söylenince çalınan kısa onay ifadesi ("Buyurun"
+  // vb.) — bu süre boyunca dinleyici gelen HİÇBİR sonucu işlemez (bkz.
+  // onayDurumunuAyarla notu), cihazın kendi sesini yeni komut sanması engellenir.
+  const sesliOku = useCallback(async (metin: string, onayMi: boolean = false) => {
     sesDurdur();
     const cagriId = ++sesliOkuIdRef.current; // sesDurdur zaten +1 yaptı ama emin olmak için burada da artır
     if (konusuyorTimerRef.current) clearTimeout(konusuyorTimerRef.current);
     setKonusuyor(true);
+    if (onayMi) onayDurumunuAyarlaRef.current(true);
 
     let zatenBitti = false; // bitti() birden fazla yoldan (timeout/error/didJustFinish) tetiklenebilir — idempotent yap
     const bitti = () => {
@@ -178,6 +185,7 @@ export default function ChatScreen() {
       if (audioPlayerRef.current) audioPlayerRef.current = null;
       dinleyiciRef.current = null;
       setKonusuyor(false);
+      if (onayMi) onayDurumunuAyarlaRef.current(false);
       // KONUŞMA MODU: PERA cevabını bitirince, sürekli mod açıksa kullanıcı "pera"
       // demeden 18 saniye içinde devam sorusu sorabilsin.
       if (surekliModRef.current) konusmaModunuAcRef.current();
@@ -263,16 +271,18 @@ export default function ChatScreen() {
   // testte "ikinci sorudan sonra kilitlenme" olarak gözlemlendi). Artık dinleyici
   // sadece kullanıcı sürekli modu açıp kapatınca başlıyor/duruyor, soru-cevap döngüsü
   // boyunca HİÇ abort edilmiyor.
-  const { durum: dinlemeDurum, sonTranscript, konusmaModunuAc } = useSurekliDinleme(
+  const { durum: dinlemeDurum, sonTranscript, konusmaModunuAc, onayDurumunuAyarla } = useSurekliDinleme(
     sorVeTTS,
     surekliMod,
     konusuyor,
     sesDurdur,
     // "Hey Pera" tek başına söylenince sesli onay — kullanıcı wake-word'ün
-    // duyulduğunu (yalnızca ekran metninden değil) sesle de anlasın.
-    (ifade) => { sesliOku(ifade); },
+    // duyulduğunu (yalnızca ekran metninden değil) sesle de anlasın. onayMi=true:
+    // bu ifade çalarken cihazın kendi sesini yeni komut sanmasını engeller.
+    (ifade) => { sesliOku(ifade, true); },
   );
   konusmaModunuAcRef.current = konusmaModunuAc;
+  onayDurumunuAyarlaRef.current = onayDurumunuAyarla;
 
   useEffect(() => { gecmisYukle(); }, [gecmisYukle]);
 

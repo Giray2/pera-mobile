@@ -86,6 +86,7 @@ export function useSurekliDinleme(
     wakeTimer:       null as ReturnType<typeof setTimeout> | null,
     sessizlikTimer:  null as ReturnType<typeof setTimeout> | null,
     sonInterim:      '', // en son ara (interim) transkript — bkz. sessizlikTimerKur notu
+    onayOkunuyor:    false, // "Hey Pera" onay ifadesi ("Buyurun" vb.) şu an TTS ile çalıyor mu
   });
   r.current.peraKonusuyorMu = peraKonusuyorMu;
 
@@ -129,6 +130,15 @@ export function useSurekliDinleme(
     // elle sıfırlanıyor.
     setDur('bekliyor');
   }, [wakeAktifYap, setDur]);
+
+  // "Hey Pera" onay ifadesi ("Buyurun" vb.) TTS ile çalarken cihaz kendi sesini
+  // (yankı, gerçek AEC olmadığı için) yeni bir komut sanabiliyordu (canlı testte
+  // "Buyrun sorunuzu alayım" ifadesinin kendisi bir sonraki soru gibi işlendiği
+  // görüldü) — ChatScreen bu onay ifadesini seslendirirken true, bitince false
+  // çağırır; true olduğu sürece HİÇBİR sonuç işlenmez (bkz. sonucIsleRef).
+  const onayDurumunuAyarla = useCallback((aktif: boolean) => {
+    r.current.onayOkunuyor = aktif;
+  }, []);
 
   const wakeTemizle = useCallback(() => {
     wakeTimerTemizle();
@@ -241,6 +251,14 @@ export function useSurekliDinleme(
     const st = r.current;
     const temiz = metin.trim();
     if (!temiz) return;
+
+    // "Hey Pera" onay ifadesi ("Buyurun" vb.) şu an TTS ile çalıyorsa gelen HİÇBİR
+    // sonuç işlenmez — kısa/sabit bir ifade olduğu için barge-in'e bile izin
+    // vermeye değmez, cihazın kendi sesini duyup yeni komut sanması riski daha ağır basar.
+    if (st.onayOkunuyor) {
+      console.log('[PERA-SR] onay ifadesi okunurken gelen sonuç yok sayıldı:', JSON.stringify(temiz));
+      return;
+    }
 
     // BARGE-IN: PERA konuşurken gelen yeterince uzun bir final sonuç, wake-word
     // ARANMADAN doğrudan kesinti + yeni komut sayılır (ChatGPT'deki "konuşarak
@@ -401,5 +419,5 @@ export function useSurekliDinleme(
     };
   }, [etkin, wakeTemizle, wakeTimerTemizle, sessizlikTimerTemizle]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { durum, sonTranscript, konusmaModunuAc };
+  return { durum, sonTranscript, konusmaModunuAc, onayDurumunuAyarla };
 }
