@@ -207,6 +207,13 @@ export function useSurekliDinleme(
   baslatRef.current = async () => {
     const st = r.current;
     if (!st.etkin || st.calisiyor) return;
+    // await'lerden önce senkron kilitleniyor — aksi halde start() üst üste iki kez
+    // çağrılabiliyordu (calisiyor flag'i eskiden await requestPermissionsAsync()'ten
+    // SONRA set ediliyordu; iki çağrı da bu await bitmeden gelirse ikisi de guard'ı
+    // geçip aynı anda iki recognizer session başlatıyordu — canlı testte iOS'ta art
+    // arda iki "start() çağrıldı" logu bununla doğrulandı, mikrofonun açılıp
+    // kapanması sanılan davranış aslında bu çakışan session'lardı).
+    st.calisiyor = true;
 
     // Cihaz desteği kontrolü — getSpeechRecognitionServices() SADECE ANDROID'E ÖZEL
     // (paket adı listesi döndürür); iOS'ta bu liste HER ZAMAN boş dönüyor, bu yüzden
@@ -218,6 +225,7 @@ export function useSurekliDinleme(
         const servisler = ExpoSpeechRecognitionModule.getSpeechRecognitionServices();
         console.log('[PERA-SR] mevcut servisler:', JSON.stringify(servisler));
         if (servisler.length === 0) {
+          st.calisiyor = false;
           setSonTranscript('Konuşma tanıma bu cihazda desteklenmiyor');
           setDur('kapali');
           return;
@@ -230,6 +238,7 @@ export function useSurekliDinleme(
     const izin = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
     console.log('[PERA-SR] izin durumu:', JSON.stringify(izin));
     if (!izin.granted) {
+      st.calisiyor = false;
       setSonTranscript('Mikrofon izni yok!');
       setDur('kapali');
       return;
@@ -243,9 +252,9 @@ export function useSurekliDinleme(
         contextualStrings: ERP_TERIMLER,
         maxAlternatives: 1,
       });
-      st.calisiyor = true;
       console.log('[PERA-SR] start() çağrıldı');
     } catch (e) {
+      st.calisiyor = false;
       console.log('[PERA-SR] start HATA:', e instanceof Error ? e.message : String(e));
       setSonTranscript(`Başlatma hatası: ${e instanceof Error ? e.message : String(e)}`);
       planlaRestart(RESTART_GECIKME_MS);
