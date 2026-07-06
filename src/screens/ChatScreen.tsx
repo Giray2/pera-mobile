@@ -24,6 +24,19 @@ const HIZLI_SORULAR = [
   'En çok alım yapan müşteriler?',
 ];
 
+// BEKLETME İFADESİ: eller serbest modda ekrana bakılmadığı için, cevap backend/LLM
+// tarafında birkaç saniye sürünce (canlı testte 10-13sn gözlendi) kullanıcı sessizliği
+// "donmuş/çalışmıyor" sanıp uygulamayı kapatabiliyordu. BEKLETME_ESIK_MS içinde cevap
+// gelmezse kısa bir sesli "bakıyorum" ifadesi çalınır — cache'ten anında gelen cevaplarda
+// (BEKLETME_ESIK_MS'den kısa sürede) hiç tetiklenmez, gereksiz kesintiye sebep olmaz.
+const BEKLETME_ESIK_MS = 1500;
+const BEKLETME_IFADELERI = [
+  'Bakıyorum, bir saniye...',
+  'Hemen kontrol ediyorum...',
+  'Bir saniye, hazırlıyorum...',
+  'Şimdi bakıyorum...',
+];
+
 function ttsMetnHazirla(metin: string): string {
   let t = metin
     // EMOJİ TEMİZLE: TTS motoru (özellikle iOS) emojiyi görünce açıklamasını
@@ -260,7 +273,16 @@ export default function ChatScreen() {
 
   const sorVeTTS = useCallback(async (metin: string) => {
     sesDurdur();
+    let cevapGeldi = false;
+    const bekletmeTimer = setTimeout(() => {
+      if (!cevapGeldi && sesliModRef.current) {
+        const ifade = BEKLETME_IFADELERI[Math.floor(Math.random() * BEKLETME_IFADELERI.length)];
+        sesliOku(ifade, true);
+      }
+    }, BEKLETME_ESIK_MS);
     const cevap = await sor(metin);
+    cevapGeldi = true;
+    clearTimeout(bekletmeTimer);
     if (cevap && sesliModRef.current) sesliOku(cevap);
   }, [sor, sesliOku, sesDurdur]);
 
@@ -369,7 +391,7 @@ export default function ChatScreen() {
           }
           <Text style={s.surekliText} numberOfLines={1}>
             {dinlemeDurum === 'isleniyor'
-              ? 'İşleniyor...'
+              ? 'Cevabınız hazırlanıyor...'
               : dinlemeDurum === 'konusuyor'
               ? 'Dinliyorum...'
               : sonTranscript
