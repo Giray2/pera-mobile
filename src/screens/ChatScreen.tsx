@@ -131,6 +131,10 @@ export default function ChatScreen() {
   // "Hey Pera" onay ifadesi çalarken dinleyicinin cihazın kendi sesini yeni komut
   // sanmaması için — sesliOku bunu true/false çağırır (bkz. onayDurumunuAyarla notu).
   const onayDurumunuAyarlaRef = useRef<(aktif: boolean) => void>(() => {});
+  // İçerik bazlı yankı tespiti (bkz. useSurekliDinleme/konusulanMetniAyarla notu) —
+  // PERA'nın TAM OLARAK ne söylediğini (onay ifadesi VEYA normal cevap, ikisi de)
+  // dinleyiciye bildirir, süre sabitlerinden bağımsız daha güvenilir bir savunma.
+  const konusulanMetniAyarlaRef = useRef<(metin: string | null) => void>(() => {});
   const surekliModRef = useRef(surekliMod);
   surekliModRef.current = surekliMod;
 
@@ -174,7 +178,9 @@ export default function ChatScreen() {
     sesDurdur();
     const cagriId = ++sesliOkuIdRef.current; // sesDurdur zaten +1 yaptı ama emin olmak için burada da artır
     if (konusuyorTimerRef.current) clearTimeout(konusuyorTimerRef.current);
+    const metinHazir = ttsMetnHazirla(metin);
     setKonusuyor(true);
+    konusulanMetniAyarlaRef.current(metinHazir);
     if (onayMi) onayDurumunuAyarlaRef.current(true);
 
     let zatenBitti = false; // bitti() birden fazla yoldan (timeout/error/didJustFinish) tetiklenebilir — idempotent yap
@@ -185,6 +191,7 @@ export default function ChatScreen() {
       if (audioPlayerRef.current) audioPlayerRef.current = null;
       dinleyiciRef.current = null;
       setKonusuyor(false);
+      konusulanMetniAyarlaRef.current(null);
       if (onayMi) onayDurumunuAyarlaRef.current(false);
       // KONUŞMA MODU: PERA cevabını bitirince, sürekli mod açıksa kullanıcı "pera"
       // demeden 18 saniye içinde devam sorusu sorabilsin.
@@ -197,7 +204,6 @@ export default function ChatScreen() {
     // (aşağıda) yeniden kurulur, tek bir "toplam konuşma" süresi garanti edilir.
     konusuyorTimerRef.current = setTimeout(zamanAsimindaBitir, 30000);
 
-    const metinHazir = ttsMetnHazirla(metin);
     const buCagriGecerliMi = () => cagriId === sesliOkuIdRef.current;
 
     const cihazaDus = () => {
@@ -271,7 +277,7 @@ export default function ChatScreen() {
   // testte "ikinci sorudan sonra kilitlenme" olarak gözlemlendi). Artık dinleyici
   // sadece kullanıcı sürekli modu açıp kapatınca başlıyor/duruyor, soru-cevap döngüsü
   // boyunca HİÇ abort edilmiyor.
-  const { durum: dinlemeDurum, sonTranscript, konusmaModunuAc, onayDurumunuAyarla } = useSurekliDinleme(
+  const { durum: dinlemeDurum, sonTranscript, konusmaModunuAc, onayDurumunuAyarla, konusulanMetniAyarla } = useSurekliDinleme(
     sorVeTTS,
     surekliMod,
     konusuyor,
@@ -283,6 +289,7 @@ export default function ChatScreen() {
   );
   konusmaModunuAcRef.current = konusmaModunuAc;
   onayDurumunuAyarlaRef.current = onayDurumunuAyarla;
+  konusulanMetniAyarlaRef.current = konusulanMetniAyarla;
 
   useEffect(() => { gecmisYukle(); }, [gecmisYukle]);
 

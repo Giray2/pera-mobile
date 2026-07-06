@@ -37,6 +37,39 @@ const SESSIZLIK_STOP_MS = 2000;
 // da benzer bir "konuşma bitince hemen dinleme" değil, kısa bir tampon süre olduğu
 // gözlemine dayanarak eklendi.
 const ONAY_KORUMA_MS = 400;
+// İÇERİK BAZLI YANKI TESPİTİ (kalıcı çözüm): süre sabitleri (SESSIZLIK_STOP_MS,
+// ONAY_KORUMA_MS) ne kadar ince ayarlanırsa ayarlansın, tanıma motorunun kendi iç
+// gecikmesi (final sonucu birkaç yüz ms-birkaç sn geç teslim etmesi) yüzünden
+// PERA'nın kendi sesi hâlâ yeni komut sanılabiliyordu (canlı testte "Hazırım,
+// buyurun" gibi TAM OLARAK PERA'nın kendi söylediği bir onay ifadesi kullanıcı
+// sormuş gibi işlendi). Süreye güvenmek yerine PERA'nın TAM OLARAK NE SÖYLEDİĞİNİ
+// (metin olarak biliyoruz, kendimiz üretiyoruz) tanınan sonuçla karşılaştırıyoruz;
+// örtüşüyorsa yankı kabul edilip yok sayılıyor — zamanlamadan bağımsız, çok daha
+// güvenilir bir savunma katmanı.
+const YANKI_PENCERE_MS = 4000; // PERA konuşmayı bitirdikten sonra da içerik-eşleşen sonuçlar bu süre boyunca yankı sayılır
+
+function normalizeMetin(s: string): string {
+  return s
+    .toLocaleLowerCase('tr-TR')
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// tanınan metin PERA'nın söylediğinin bir parçası mı (ya da tam tersi, kısa onay
+// ifadelerinde) — ya da kelimelerin büyük kısmı örtüşüyor mu (STT parça parça/
+// bozuk yakalamış olabilir, tam alt dize eşleşmesi her zaman olmayabilir).
+function metinYankiMi(tanınan: string, soylenen: string): boolean {
+  const a = normalizeMetin(soylenen);
+  const b = normalizeMetin(tanınan);
+  if (!a || !b) return false;
+  if (a.includes(b) || b.includes(a)) return true;
+  const aKelimeler = new Set(a.split(' '));
+  const bKelimeler = b.split(' ').filter(Boolean);
+  if (!bKelimeler.length) return false;
+  const ortakSayisi = bKelimeler.filter((k) => aKelimeler.has(k)).length;
+  return ortakSayisi / bKelimeler.length >= 0.7;
+}
 
 const ERP_TERIMLER = [
   'pera', 'sipariş', 'fatura', 'stok', 'ürün', 'müşteri', 'cari',
@@ -95,6 +128,8 @@ export function useSurekliDinleme(
     onayKorumaTimer: null as ReturnType<typeof setTimeout> | null,
     sonInterim:      '', // en son ara (interim) transkript — bkz. sessizlikTimerKur notu
     onayOkunuyor:    false, // "Hey Pera" onay ifadesi ("Buyurun" vb.) şu an TTS ile çalıyor mu
+    sonSoylenenMetin: '', // PERA'nın şu an (veya en son) söylediği tam metin — içerik bazlı yankı tespiti için
+    sonSoylenenBitisMs: 0, // PERA'nın konuşmayı bitirdiği zaman — YANKI_PENCERE_MS penceresi bunun üzerinden hesaplanır
   });
   r.current.peraKonusuyorMu = peraKonusuyorMu;
 
@@ -154,6 +189,17 @@ export function useSurekliDinleme(
         r.current.onayKorumaTimer = null;
         r.current.onayOkunuyor = false;
       }, ONAY_KORUMA_MS);
+    }
+  }, []);
+
+  // PERA konuşmaya BAŞLARKEN tam metinle (metin), BİTİRİNCE null ile çağrılır —
+  // null çağrısı sadece bitiş zamanını damgalar (sonSoylenenMetin öylece kalır,
+  // YANKI_PENCERE_MS boyunca hâlâ karşılaştırma için kullanılabilsin diye silinmez).
+  const konusulanMetniAyarla = useCallback((metin: string | null) => {
+    if (metin !== null) {
+      r.current.sonSoylenenMetin = metin;
+    } else {
+      r.current.sonSoylenenBitisMs = Date.now();
     }
   }, []);
 
@@ -283,6 +329,16 @@ export function useSurekliDinleme(
     // vermeye değmez, cihazın kendi sesini duyup yeni komut sanması riski daha ağır basar.
     if (st.onayOkunuyor) {
       console.log('[PERA-SR] onay ifadesi okunurken gelen sonuç yok sayıldı:', JSON.stringify(temiz));
+      return;
+    }
+
+    // İÇERİK BAZLI YANKI TESPİTİ: PERA konuşuyorsa YA DA yakın zamanda konuşmayı
+    // bitirdiyse (YANKI_PENCERE_MS), tanınan metin PERA'nın söylediğiyle örtüşüyorsa
+    // bu kesinlikle cihazın kendi sesini duyması — süre sabitlerinden bağımsız,
+    // içeriğe dayalı olduğu için çok daha güvenilir (bkz. YANKI_PENCERE_MS notu).
+    const yakinZamandaKonustu = Date.now() - st.sonSoylenenBitisMs < YANKI_PENCERE_MS;
+    if ((st.peraKonusuyorMu || yakinZamandaKonustu) && metinYankiMi(temiz, st.sonSoylenenMetin)) {
+      console.log('[PERA-SR] içerik bazlı yankı tespit edildi, yok sayıldı:', JSON.stringify(temiz));
       return;
     }
 
@@ -445,5 +501,5 @@ export function useSurekliDinleme(
     };
   }, [etkin, wakeTemizle, wakeTimerTemizle, sessizlikTimerTemizle]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { durum, sonTranscript, konusmaModunuAc, onayDurumunuAyarla };
+  return { durum, sonTranscript, konusmaModunuAc, onayDurumunuAyarla, konusulanMetniAyarla };
 }
