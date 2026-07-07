@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
@@ -288,6 +288,8 @@ export function useSurekliDinleme(
     // yüzünden %100 değil — canlı testte kullanıcı baloncuğunda yankı görüldü).
     // Konuşma bitince peraKonusuyorMu-effect'i dinlemeyi geri açar.
     if (st.peraKonusuyorMu) return;
+    // Arka plandayken başlatma (pil) — öne dönüşte AppState-effect'i tekrar açar.
+    if (AppState.currentState !== 'active') return;
     // await'lerden önce senkron kilitleniyor — aksi halde start() üst üste iki kez
     // çağrılabiliyordu (calisiyor flag'i eskiden await requestPermissionsAsync()'ten
     // SONRA set ediliyordu; iki çağrı da bu await bitmeden gelirse ikisi de guard'ı
@@ -575,6 +577,27 @@ export function useSurekliDinleme(
     // peraKonusuyorMu-effect'i tarafından geri açılır (bkz. baslatRef notu).
     if (r.current.etkin && !r.current.peraKonusuyorMu) planlaRestart();
   });
+
+  // ── Arka planda mikrofonu kapat (pil) ─────────────────────────────────────
+  // Sürekli dinleme, uygulama arka plana geçince/ekran kilitlenince anlamsız yere
+  // pil tüketiyordu (no-speech döngüsüyle mikrofon sürekli açılıp kapanıyor).
+  // Arka planda oturum durdurulur; öne dönünce sürekli mod hâlâ açıksa kaldığı
+  // yerden otomatik devam eder (kullanıcının modu yeniden açması gerekmez).
+  useEffect(() => {
+    const abone = AppState.addEventListener('change', (durumYeni) => {
+      if (!r.current.etkin) return;
+      if (durumYeni === 'active') {
+        planlaRestart();
+      } else {
+        sessizlikTimerTemizle();
+        r.current.sonInterim = '';
+        if (r.current.restartTimer) { clearTimeout(r.current.restartTimer); r.current.restartTimer = null; }
+        try { ExpoSpeechRecognitionModule.abort(); } catch {}
+        r.current.calisiyor = false;
+      }
+    });
+    return () => abone.remove();
+  }, [planlaRestart, sessizlikTimerTemizle]);
 
   // ── PERA konuşurken dinlemeyi kapat / bitince aç ──────────────────────────
   // ChatGPT tarzı sıralı akış: TTS çalarken mikrofon TAMAMEN kapalı (yankının

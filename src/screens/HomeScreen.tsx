@@ -172,7 +172,7 @@ export default function HomeScreen({ navigation }: any) {
           <Text style={s.bolumBaslik}>Hızlı Erişim</Text>
           <View style={s.aksiyonRow}>
             <AksiyonBtn
-              emoji="🤖"
+              emoji="🎙️"
               baslik="AI Asistan"
               renk="#4fc3f7"
               onPress={() => navigation.navigate('Chat')}
@@ -222,7 +222,7 @@ export default function HomeScreen({ navigation }: any) {
             onPress={() => navigation.navigate('Chat')}
             activeOpacity={0.8}
           >
-            <Text style={s.peraYardimEmoji}>🤖</Text>
+            <Text style={s.peraYardimEmoji}>🎙️</Text>
             <View style={{ flex: 1 }}>
               <Text style={s.peraYardimBaslik}>PERA'ya Sor</Text>
               <Text style={s.peraYardimAlt}>

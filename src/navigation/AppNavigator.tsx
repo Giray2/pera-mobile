@@ -41,7 +41,7 @@ function AsistanTabButton(props: any) {
       style={styles.asistanButonKapsayici}
     >
       <View style={[styles.asistanButon, secili && styles.asistanButonAktif]}>
-        <Text style={styles.asistanEmoji}>🤖</Text>
+        <Text style={styles.asistanEmoji}>🎙️</Text>
       </View>
       <Text style={[styles.asistanEtiket, secili && { color: '#4fc3f7' }]}>Asistan</Text>
     </TouchableOpacity>

@@ -8,4 +8,8 @@ export const ENV = {
   MAX_CHAT_HISTORY: 30,
   REQUEST_TIMEOUT_MS: 60_000,
   AUDIO_UPLOAD_TIMEOUT_MS: 120_000,
+  // true yapılırsa release build'de de console.log çalışır (adb logcat /
+  // idevicesyslog ile canlı cihaz teşhisi için) — normalde kapalı: 36 adet
+  // tanı logu her tanıma ara-sonucunda string üretip performansı yiyordu.
+  DEBUG_LOG: false,
 };
