@@ -8,7 +8,12 @@ import {
 export type DinlemeDurum = 'kapali' | 'bekliyor' | 'konusuyor' | 'isleniyor';
 
 const LOCALE = 'tr-TR';
-const RESTART_GECIKME_MS = 800;
+// Oturumlar arası boşluk: her final sonuçtan sonra session abort edilip yeniden
+// başlatılıyor (native kısıt) — bu boşlukta söylenenler kaybolur ve mikrofonun
+// "açılıp kapandığı" hissini verir. 800ms'ten 250ms'e düşürüldü: abort() native
+// tarafta asenkron temizlik yaptığı için sıfırlanamıyor, ama canlı testte 800ms'in
+// gereksiz uzun olduğu görüldü (kayıp pencereyi 3 kat daraltır).
+const RESTART_GECIKME_MS = 250;
 const NETWORK_RETRY_MS   = 4000;
 const CAPTURE_RETRY_MS   = 6000;
 const WAKE_ZAMAN_ASIMI   = 5000;   // "pera" duyulduktan sonra komut için bekleme süresi
@@ -134,6 +139,7 @@ export function useSurekliDinleme(
     onayOkunuyor:    false, // "Hey Pera" onay ifadesi ("Buyurun" vb.) şu an TTS ile çalıyor mu
     sonSoylenenMetin: '', // PERA'nın şu an (veya en son) söylediği tam metin — içerik bazlı yankı tespiti için
     sonSoylenenBitisMs: 0, // PERA'nın konuşmayı bitirdiği zaman — YANKI_PENCERE_MS penceresi bunun üzerinden hesaplanır
+    durum:           'kapali' as DinlemeDurum, // React state'in senkron okunabilir aynası (event handler'lar için)
   });
   r.current.peraKonusuyorMu = peraKonusuyorMu;
 
@@ -144,7 +150,10 @@ export function useSurekliDinleme(
   const onWakeTetiklendiRef = useRef(onWakeTetiklendi);
   onWakeTetiklendiRef.current = onWakeTetiklendi;
 
-  const setDur = useCallback((d: DinlemeDurum) => setDurum(d), []);
+  const setDur = useCallback((d: DinlemeDurum) => {
+    r.current.durum = d; // event handler'ların senkron okuyabilmesi için ayna
+    setDurum(d);
+  }, []);
 
   const wakeTimerTemizle = useCallback(() => {
     if (r.current.wakeTimer) {
@@ -301,6 +310,22 @@ export function useSurekliDinleme(
         continuous: true,
         contextualStrings: ERP_TERIMLER,
         maxAlternatives: 1,
+        // DONANIMSAL EKO İPTALİ (AEC) — kalıcı yankı çözümünün asıl katmanı.
+        // iOS: giriş+çıkış node'ları Apple'ın "voice processing" moduna alınır,
+        // cihazın kendi hoparlöründen çıkan ses mikrofon girişinden DONANIMSAL
+        // olarak çıkarılır (ChatGPT sesli modunun kullandığı mekanizmanın aynısı).
+        // İçerik bazlı yankı tespiti (metinYankiMi) ikinci savunma katmanı olarak
+        // yerinde kalıyor. Not: Apple dokümanına göre hoparlör ses seviyesini bir
+        // miktar düşürebilir — yankının tamamen bitmesine değer.
+        iosVoiceProcessingEnabled: true,
+        // Android native tanıyıcının kendi sessizlik eşiği bizim SESSIZLIK_STOP_MS
+        // ile hizalanıyor — aksi halde native taraf ~1sn sessizlikte kendi kendine
+        // session'ı bitirip (end event) cümleyi bölebiliyor; bizim 3sn'lik istemci
+        // tarafı eşiğimizin çalışmasına fırsat kalmıyordu.
+        androidIntentOptions: {
+          EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS: SESSIZLIK_STOP_MS,
+          EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS: SESSIZLIK_STOP_MS,
+        },
       });
       console.log('[PERA-SR] start() çağrıldı');
     } catch (e) {
@@ -391,6 +416,12 @@ export function useSurekliDinleme(
     if (!r.current.etkin) return;
     console.log('[PERA-SR] event: start');
     r.current.calisiyor = true;
+    // Soru şu an backend'de işleniyorsa ('isleniyor'), oturumun rutin yeniden
+    // başlaması ekranı "bekliyor / pera deyin..."e DÜŞÜRMEMELİ — kullanıcı
+    // "Cevabınız hazırlanıyor..." göstergesini görmeye devam etmeli (canlı testte
+    // bu sıfırlama yüzünden kullanıcı cevabın gelmediğini sanıp uygulamayı kapattı).
+    // 'isleniyor' durumu, cevap gelince ChatScreen'in konusmaModunuAc çağrısıyla çözülür.
+    if (r.current.durum === 'isleniyor') return;
     setDur('bekliyor');
     if (!r.current.wakeAktif) setSonTranscript('"pera" deyin...');
   });

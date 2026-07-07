@@ -134,6 +134,11 @@ export default function ChatScreen() {
       audioPlayerRef.current = null;
     }
     setKonusuyor(false);
+    // GÜVENLİK: sunucu-TTS yolunda çalan bir onay/bekletme ifadesi buradan kesilirse
+    // o çağrının bitti()'si HİÇ çalışmaz → onayOkunuyor bayrağı true'da takılı kalır
+    // ve dinleyici tüm sonuçları sonsuza dek yok sayar (uygulama "sağırlaşır").
+    // Kesinti her zaman onay durumunu da kapatır (400ms'lik korumalı kapanış).
+    onayDurumunuAyarlaRef.current(false);
   }, []);
 
   const konusuyorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -187,7 +192,10 @@ export default function ChatScreen() {
   // onayMi=true: "Hey Pera" tek başına söylenince çalınan kısa onay ifadesi ("Buyurun"
   // vb.) — bu süre boyunca dinleyici gelen HİÇBİR sonucu işlemez (bkz.
   // onayDurumunuAyarla notu), cihazın kendi sesini yeni komut sanması engellenir.
-  const sesliOku = useCallback(async (metin: string, onayMi: boolean = false) => {
+  // bekletmeMi=true: cevap beklerken çalınan kısa "Bakıyorum..." ifadesi — bittiğinde
+  // konuşma modu AÇILMAMALI (cevap hâlâ backend'de; ekran "Cevabınız hazırlanıyor..."da
+  // kalmalı ve 18sn'lik soru penceresi yanlış yere açılmamalı).
+  const sesliOku = useCallback(async (metin: string, onayMi: boolean = false, bekletmeMi: boolean = false) => {
     sesDurdur();
     const cagriId = ++sesliOkuIdRef.current; // sesDurdur zaten +1 yaptı ama emin olmak için burada da artır
     if (konusuyorTimerRef.current) clearTimeout(konusuyorTimerRef.current);
@@ -207,8 +215,9 @@ export default function ChatScreen() {
       konusulanMetniAyarlaRef.current(null);
       if (onayMi) onayDurumunuAyarlaRef.current(false);
       // KONUŞMA MODU: PERA cevabını bitirince, sürekli mod açıksa kullanıcı "pera"
-      // demeden 18 saniye içinde devam sorusu sorabilsin.
-      if (surekliModRef.current) konusmaModunuAcRef.current();
+      // demeden 18 saniye içinde devam sorusu sorabilsin. (Bekletme ifadesinde açılmaz
+      // — bkz. bekletmeMi notu.)
+      if (surekliModRef.current && !bekletmeMi) konusmaModunuAcRef.current();
     };
     const zamanAsimindaBitir = () => {
       if (cagriId === sesliOkuIdRef.current) bitti();
@@ -277,13 +286,20 @@ export default function ChatScreen() {
     const bekletmeTimer = setTimeout(() => {
       if (!cevapGeldi && sesliModRef.current) {
         const ifade = BEKLETME_IFADELERI[Math.floor(Math.random() * BEKLETME_IFADELERI.length)];
-        sesliOku(ifade, true);
+        sesliOku(ifade, true, true);
       }
     }, BEKLETME_ESIK_MS);
     const cevap = await sor(metin);
     cevapGeldi = true;
     clearTimeout(bekletmeTimer);
-    if (cevap && sesliModRef.current) sesliOku(cevap);
+    if (cevap && sesliModRef.current) {
+      sesliOku(cevap);
+    } else if (surekliModRef.current) {
+      // TTS çalmayacaksa (sesli mod kapalı ya da cevap hatalı) 'isleniyor' durumunu
+      // burada çöz — dinleme çubuğu "Cevabınız hazırlanıyor..."da takılı kalmasın
+      // ve kullanıcı 18sn'lik konuşma penceresinden yine yararlanabilsin.
+      konusmaModunuAcRef.current();
+    }
   }, [sor, sesliOku, sesDurdur]);
 
   // TEK MİKROFON: önceden ayrı bir "bas-konuş" (push-to-talk) butonu da vardı —
