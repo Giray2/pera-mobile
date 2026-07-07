@@ -282,6 +282,12 @@ export function useSurekliDinleme(
   baslatRef.current = async () => {
     const st = r.current;
     if (!st.etkin || st.calisiyor) return;
+    // PERA KONUŞURKEN DİNLEME TAMAMEN KAPALI (ChatGPT tarzı sıralı akış): AEC
+    // olmadığından mikrofon açıkken hoparlör yankısı kaçınılmaz olarak transkripte
+    // sızıyordu (içerik filtresi + wake-gate çoğunu tuttu ama STT bozulmaları
+    // yüzünden %100 değil — canlı testte kullanıcı baloncuğunda yankı görüldü).
+    // Konuşma bitince peraKonusuyorMu-effect'i dinlemeyi geri açar.
+    if (st.peraKonusuyorMu) return;
     // await'lerden önce senkron kilitleniyor — aksi halde start() üst üste iki kez
     // çağrılabiliyordu (calisiyor flag'i eskiden await requestPermissionsAsync()'ten
     // SONRA set ediliyordu; iki çağrı da bu await bitmeden gelirse ikisi de guard'ı
@@ -565,8 +571,30 @@ export function useSurekliDinleme(
     // native taraf beklenenden erken sonlandırdıysa) — elde ara sonuç varsa yine de
     // işle, aksi halde söylenen tamamen kaybolur.
     bekleyenInterimiIsle();
-    if (r.current.etkin) planlaRestart();
+    // PERA konuşuyorsa yeniden BAŞLATMA — dinleme, konuşma bitince
+    // peraKonusuyorMu-effect'i tarafından geri açılır (bkz. baslatRef notu).
+    if (r.current.etkin && !r.current.peraKonusuyorMu) planlaRestart();
   });
+
+  // ── PERA konuşurken dinlemeyi kapat / bitince aç ──────────────────────────
+  // ChatGPT tarzı sıralı akış: TTS çalarken mikrofon TAMAMEN kapalı (yankının
+  // işlenebileceği hiçbir yol kalmaz), konuşma bitince kısa bir kuyruk tamponu
+  // (ONAY_KORUMA_MS) sonrasında dinleme otomatik geri açılır. Sesle araya girme
+  // (barge-in) bilinçli olarak kaldırıldı — kullanıcı ekrandaki "PERA konuşuyor —
+  // durdurmak için dokun" çubuğuyla kesebiliyor (kullanıcının açık talebi:
+  // "konuşmasını bitirdikten sonra dinlemeye geçmesi gerekiyor").
+  useEffect(() => {
+    if (!r.current.etkin) return;
+    if (peraKonusuyorMu) {
+      sessizlikTimerTemizle();
+      r.current.sonInterim = '';
+      if (r.current.restartTimer) { clearTimeout(r.current.restartTimer); r.current.restartTimer = null; }
+      try { ExpoSpeechRecognitionModule.abort(); } catch {}
+      r.current.calisiyor = false;
+    } else {
+      planlaRestart(ONAY_KORUMA_MS);
+    }
+  }, [peraKonusuyorMu, sessizlikTimerTemizle, planlaRestart]);
 
   // ── etkin değişince başlat/durdur ─────────────────────────────────────────
   useEffect(() => {
