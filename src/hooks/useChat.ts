@@ -123,6 +123,12 @@ export function useChat() {
         mesajEkle({ tip: 'hata', metin: msg, orijinalSoru: metin.trim() });
         return null;
       } finally {
+        // KRİTİK: ref de sıfırlanmalı — sadece state sıfırlanınca ref sonsuza dek
+        // true kalıyor ve sonraki HER sor() çağrısı 'yukleniyorRef.current' guard'ında
+        // anında null dönüyordu (istek backend'e hiç çıkmıyordu). Canlı testte
+        // "ikinci soruya cevap vermiyor" olarak yaşanan kilitlenmenin kök nedeni buydu
+        // (API loglarıyla doğrulandı: gün boyunca yalnızca İLK soru sunucuya ulaşmış).
+        yukleniyorRef.current = false;
         setYukleniyor(false);
       }
     },

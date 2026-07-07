@@ -294,10 +294,15 @@ export default function ChatScreen() {
     clearTimeout(bekletmeTimer);
     if (cevap && sesliModRef.current) {
       sesliOku(cevap);
+    } else if (!cevap && sesliModRef.current) {
+      // SESLİ HATA BİLDİRİMİ: eller serbest modda kullanıcı ekrana bakmıyor —
+      // backend hatası/boş cevap sessizce yutulursa "cevap vermedi" olarak
+      // yaşanıyor (canlı testte 2. sorunun cevabı böyle kayboldu). Hata da
+      // sesli okunur; bitti()'si konuşma modunu açar, kullanıcı hemen tekrar sorabilir.
+      sesliOku('Üzgünüm, bir sorun oluştu. Lütfen sorunuzu tekrar sorar mısınız?');
     } else if (surekliModRef.current) {
-      // TTS çalmayacaksa (sesli mod kapalı ya da cevap hatalı) 'isleniyor' durumunu
-      // burada çöz — dinleme çubuğu "Cevabınız hazırlanıyor..."da takılı kalmasın
-      // ve kullanıcı 18sn'lik konuşma penceresinden yine yararlanabilsin.
+      // Sesli mod kapalıyken 'isleniyor' durumunu çöz — dinleme çubuğu
+      // "Cevabınız hazırlanıyor..."da takılı kalmasın.
       konusmaModunuAcRef.current();
     }
   }, [sor, sesliOku, sesDurdur]);

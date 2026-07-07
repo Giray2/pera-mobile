@@ -310,14 +310,14 @@ export function useSurekliDinleme(
         continuous: true,
         contextualStrings: ERP_TERIMLER,
         maxAlternatives: 1,
-        // DONANIMSAL EKO İPTALİ (AEC) — kalıcı yankı çözümünün asıl katmanı.
-        // iOS: giriş+çıkış node'ları Apple'ın "voice processing" moduna alınır,
-        // cihazın kendi hoparlöründen çıkan ses mikrofon girişinden DONANIMSAL
-        // olarak çıkarılır (ChatGPT sesli modunun kullandığı mekanizmanın aynısı).
-        // İçerik bazlı yankı tespiti (metinYankiMi) ikinci savunma katmanı olarak
-        // yerinde kalıyor. Not: Apple dokümanına göre hoparlör ses seviyesini bir
-        // miktar düşürebilir — yankının tamamen bitmesine değer.
-        iosVoiceProcessingEnabled: true,
+        // NOT — iosVoiceProcessingEnabled DENENDİ VE GERİ ALINDI (canlı test,
+        // 07.07): Apple'ın voice-processing modu ses oturumunu yüksek öncelikle
+        // kilitleyip sunucu TTS'in çalmasını '!pri' (InsufficientPriority,
+        // OSStatus 561017449) hatasıyla ENGELLEDİ ve hoparlör sesini kısıtı;
+        // üstelik TTS'imiz (expo-audio/expo-speech) recognizer'ın ses ünitesinden
+        // geçmediği için yankıyı da donanımsal olarak süzemedi (cevabın tamamı
+        // yine mikrofona girdi). Yankı savunması içerik bazlı filtrede
+        // (metinYankiMi) kalıyor — canlı testte %100 yakaladı.
         // Android native tanıyıcının kendi sessizlik eşiği bizim SESSIZLIK_STOP_MS
         // ile hizalanıyor — aksi halde native taraf ~1sn sessizlikte kendi kendine
         // session'ı bitirip (end event) cümleyi bölebiliyor; bizim 3sn'lik istemci
@@ -443,6 +443,18 @@ export function useSurekliDinleme(
       r.current.sonInterim = '';
       sonucIsleRef.current?.(transcript);
     } else {
+      // YANKI ARA SONUÇLARI EKRANA YAZILMASIN: final aşamadaki içerik filtresi
+      // yankıyı komut olmaktan zaten çıkarıyor, ama ara transkript ekranda canlı
+      // göründüğü için kullanıcı "uygulama kendi sesini yazıyor" algılıyordu
+      // (canlı test geri bildirimi). PERA konuşurken/yeni bitirmişken söylenen
+      // metinle örtüşen ara sonuçlar ne gösterilir ne de sessizlik sayacını besler.
+      const st = r.current;
+      const yankiSupheli = (st.peraKonusuyorMu || Date.now() - st.sonSoylenenBitisMs < YANKI_PENCERE_MS)
+        && metinYankiMi(transcript, st.sonSoylenenMetin);
+      if (yankiSupheli) {
+        console.log('[PERA-SR] yankı şüpheli ara sonuç gizlendi:', JSON.stringify(transcript));
+        return;
+      }
       setDur('konusuyor');
       setSonTranscript(transcript);
       r.current.sonInterim = transcript;
