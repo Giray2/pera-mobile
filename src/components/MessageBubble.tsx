@@ -11,6 +11,60 @@ interface Props {
   mesaj: Mesaj;
   onTekrarDene?: (soru: string) => void;
   onSesliOku?: (metin: string) => void;
+  // Netleştirme seçenekleri (mesaj.secenekler) için: kullanıcı bir/birden fazla
+  // seçenek işaretleyip "Sor" deyince seçilen metinlerle çağrılır.
+  onSecenekGonder?: (secimler: string[]) => void;
+}
+
+// Netleştirme sorusu seçenekleri: dokunulabilir, ÇOKLU seçilebilir butonlar.
+// Tek dokunuş seç/bırak; en az bir seçim olunca "Seçilenleri Sor" belirir.
+// Gönderildikten sonra kilitlenir (yanlışlıkla ikinci kez gönderim olmasın).
+function SecenekListesi({ secenekler, onGonder }: { secenekler: string[]; onGonder: (s: string[]) => void }) {
+  const [secili, setSecili] = useState<Set<number>>(new Set());
+  const [gonderildi, setGonderildi] = useState(false);
+
+  const degistir = (i: number) => {
+    if (gonderildi) return;
+    setSecili((prev) => {
+      const yeni = new Set(prev);
+      if (yeni.has(i)) yeni.delete(i); else yeni.add(i);
+      return yeni;
+    });
+  };
+
+  const gonder = () => {
+    if (gonderildi || secili.size === 0) return;
+    setGonderildi(true);
+    onGonder([...secili].sort((a, b) => a - b).map((i) => secenekler[i]));
+  };
+
+  return (
+    <View style={s.secenekAlan}>
+      {secenekler.map((sec, i) => {
+        const aktif = secili.has(i);
+        return (
+          <TouchableOpacity
+            key={i}
+            style={[s.secenekBtn, aktif && s.secenekBtnSecili, gonderildi && s.secenekBtnKilitli]}
+            onPress={() => degistir(i)}
+            disabled={gonderildi}
+            activeOpacity={0.7}
+          >
+            <Text style={[s.secenekIsaret, aktif && s.secenekIsaretSecili]}>{aktif ? '☑' : '☐'}</Text>
+            <Text style={[s.secenekText, aktif && s.secenekTextSecili]}>{sec}</Text>
+          </TouchableOpacity>
+        );
+      })}
+      {secili.size > 0 && !gonderildi && (
+        <TouchableOpacity style={s.secenekGonderBtn} onPress={gonder} activeOpacity={0.8}>
+          <Text style={s.secenekGonderText}>
+            {secili.size === 1 ? 'Seçileni Sor  ➤' : `${secili.size} Seçileni Sor  ➤`}
+          </Text>
+        </TouchableOpacity>
+      )}
+      {gonderildi && <Text style={s.secenekGonderildi}>✓ Gönderildi</Text>}
+    </View>
+  );
 }
 
 function MailModal({ metin, onKapat }: { metin: string; onKapat: () => void }) {
@@ -87,7 +141,7 @@ function MailModal({ metin, onKapat }: { metin: string; onKapat: () => void }) {
   );
 }
 
-export function MessageBubble({ mesaj, onTekrarDene, onSesliOku }: Props) {
+export function MessageBubble({ mesaj, onTekrarDene, onSesliOku, onSecenekGonder }: Props) {
   const [mailAcik, setMailAcik] = useState(false);
   const isUser = mesaj.tip === 'kullanici';
   const isHata = mesaj.tip === 'hata';
@@ -118,6 +172,12 @@ export function MessageBubble({ mesaj, onTekrarDene, onSesliOku }: Props) {
             ) : (
               <Text style={s.metin}>{mesaj.metin}</Text>
             )}
+            {!isUser && !isHata && !isSistem && mesaj.secenekler?.length ? (
+              <SecenekListesi
+                secenekler={mesaj.secenekler}
+                onGonder={(secimler) => onSecenekGonder?.(secimler)}
+              />
+            ) : null}
             {!isUser && !isHata && !isSistem && (
               <Text style={s.meta}>
                 {mesaj.cachtenGeldi ? '⚡ cache' : mesaj.sureMs ? `⏱ ${(mesaj.sureMs / 1000).toFixed(1)}s` : ''}
@@ -161,6 +221,18 @@ const s = StyleSheet.create({
   bubbleSistem:{ backgroundColor: '#1a1a2e', borderBottomLeftRadius: 4, borderWidth: 1, borderColor: '#2a2a4e' },
   metin:     { color: '#eceff1', fontSize: 14, lineHeight: 20 },
   meta:      { color: '#546e7a', fontSize: 10, marginTop: 4 },
+  // Netleştirme seçenek butonları
+  secenekAlan:        { marginTop: 10, gap: 6 },
+  secenekBtn:         { flexDirection: 'row', alignItems: 'center', backgroundColor: '#263545', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: '#37474f', gap: 8 },
+  secenekBtnSecili:   { borderColor: '#4fc3f7', backgroundColor: '#0d2c40' },
+  secenekBtnKilitli:  { opacity: 0.55 },
+  secenekIsaret:      { color: '#546e7a', fontSize: 15 },
+  secenekIsaretSecili:{ color: '#4fc3f7' },
+  secenekText:        { color: '#cfd8dc', fontSize: 13, flex: 1, lineHeight: 18 },
+  secenekTextSecili:  { color: '#eceff1', fontWeight: '600' },
+  secenekGonderBtn:   { backgroundColor: '#0288d1', borderRadius: 10, paddingVertical: 11, alignItems: 'center', marginTop: 2 },
+  secenekGonderText:  { color: '#fff', fontSize: 14, fontWeight: '700' },
+  secenekGonderildi:  { color: '#66bb6a', fontSize: 12, textAlign: 'center', paddingVertical: 4 },
   tekrarBtn: { marginTop: 6, backgroundColor: '#1c2a36', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8, alignSelf: 'flex-start', borderWidth: 1, borderColor: '#ef5350' },
   tekrarText:{ color: '#ef5350', fontSize: 13, fontWeight: '600' },
   // Mail modal

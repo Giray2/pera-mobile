@@ -13,6 +13,9 @@ export interface Mesaj {
   cachtenGeldi?: boolean;
   grafikVerisi?: unknown;
   orijinalSoru?: string;
+  // Netleştirme (belirsizlik) seçenekleri — doluysa balonun altında dokunulabilir,
+  // ÇOKLU seçilebilir butonlar olarak gösterilir (numaralı düz metin listesi yerine).
+  secenekler?: string[];
 }
 
 export interface SohbetKayit {
@@ -99,8 +102,21 @@ export function useChat() {
           cevapMetni = d.sohbet;
         } else if (d.belirsizlik) {
           const secenekler: string[] = d.belirsizlik.secenekler ?? [];
-          const secenekMetni = secenekler.map((s, i) => `${i + 1}. ${s}`).join('\n');
-          cevapMetni = secenekMetni ? `${d.belirsizlik.soru}\n\n${secenekMetni}` : d.belirsizlik.soru;
+          // Seçenekler artık balonda dokunulabilir buton olarak gösteriliyor —
+          // balon metni sadece soru; numaralı liste yalnızca LLM bağlam geçmişine
+          // gider (kullanıcı "1 numara" gibi cevap verirse backend anlayabilsin).
+          if (secenekler.length) {
+            mesajEkle({ tip: 'pera', metin: d.belirsizlik.soru, secenekler });
+            const secenekMetni = secenekler.map((s, i) => `${i + 1}. ${s}`).join('\n');
+            gecmisRef.current = [
+              ...konusmaGecmisi,
+              { rol: 'kullanici' as const, metin: metin.trim() },
+              { rol: 'pera' as const, metin: `${d.belirsizlik.soru}\n\n${secenekMetni}` },
+            ].slice(-10);
+            // TTS tüm seçenekleri okumasın — soru + kısa yönlendirme yeterli.
+            return `${d.belirsizlik.soru} Ekrandaki seçeneklerden seçebilirsiniz.`;
+          }
+          cevapMetni = d.belirsizlik.soru;
         } else if (d.success === false) {
           cevapMetni = d.kullaniciMesaji || d.error || 'Yanıt alınamadı.';
           tip = 'hata';

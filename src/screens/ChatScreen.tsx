@@ -312,6 +312,14 @@ export default function ChatScreen() {
     }
   }, [sor, sesliOku, sesDurdur]);
 
+  // Netleştirme seçenekleri butonlarından gelen seçim(ler) — birden fazla
+  // seçilebildiği için " ve " ile birleştirilip normal soru akışına verilir
+  // (sesli mod açıksa cevap otomatik okunur, bekletme ifadesi de çalışır).
+  const secenekleriSor = useCallback((secimler: string[]) => {
+    if (!secimler.length) return;
+    sorVeTTS(secimler.join(' ve '));
+  }, [sorVeTTS]);
+
   // TEK MİKROFON: önceden ayrı bir "bas-konuş" (push-to-talk) butonu da vardı —
   // kullanıcı isteğiyle kaldırıldı, tek ses girişi yolu artık sürekli/eller-serbest
   // mod (surekliMod). Kullanıcı istediğinde zaten dokunup durdurabiliyor (header
@@ -448,6 +456,7 @@ export default function ChatScreen() {
             mesaj={item}
             onTekrarDene={tekrarDene}
             onSesliOku={sesliMod ? sesliOku : undefined}
+            onSecenekGonder={secenekleriSor}
           />
         )}
         contentContainerStyle={s.liste}
