@@ -42,6 +42,11 @@ function ttsMetnHazirla(metin: string): string {
     // EMOJİ TEMİZLE: TTS motoru (özellikle iOS) emojiyi görünce açıklamasını
     // ("çizgi grafiği", "onay işareti" vb.) sesli okuyor — TTS'e hiç gitmemeli.
     .replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, '')
+    // "PERA" KELİMESİNİ SESLENDİRME: barge-in (PERA konuşurken araya girme) artık
+    // SADECE wake-word ("pera ...") ile tetikleniyor — PERA'nın kendi sesli çıktısı
+    // bu kelimeyi hiç içermezse, hoparlörden dönen yankı hiçbir koşulda barge-in
+    // tetikleyemez (yankı-döngüsünün fiziksel olarak kapatılması).
+    .replace(/\bpera\b/giu, '')
     .replace(/\*\*/g, '').replace(/\*/g, '')
     .replace(/#{1,6}\s/g, '').replace(/[-•]\s/g, '')
     .replace(/\bTL\b/g, 'Türk Lirası')

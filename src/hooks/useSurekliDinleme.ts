@@ -18,11 +18,10 @@ const NETWORK_RETRY_MS   = 4000;
 const CAPTURE_RETRY_MS   = 6000;
 const WAKE_ZAMAN_ASIMI   = 5000;   // "pera" duyulduktan sonra komut için bekleme süresi
 const KONUSMA_MODU_SURESI = 18000; // PERA cevap verdikten sonra "pera" demeden devam edebilme penceresi
-// BARGE-IN (sesle kesinti): PERA konuşurken gelen ara (interim) sonuç en az bu kadar
-// karakter/kelime içermiyorsa YOK SAYILIR — kısa gürültü/yankı parçacıklarının
-// (PERA'nın kendi sesinin mikrofona karışması) yanlışlıkla kesinti tetiklemesini
-// azaltır. Gerçek cihazda ayarlanması/ince ayar gerekebilir (bkz. AGENTS.md notu).
-const KESINTI_MIN_KELIME = 2;
+// BARGE-IN (sesle kesinti): PERA konuşurken araya girmek artık SADECE wake-word
+// ("pera ...") ile mümkün — kelime-sayısı eşiği (eski KESINTI_MIN_KELIME) canlı
+// testte yetersiz kaldı: PERA'nın kendi cevabının yankısı da uzun olduğundan
+// kesinti sanılabiliyordu (bkz. sonucIsle içindeki BARGE-IN notu).
 // SESSİZLİK TESPİTİYLE FİNAL SONUÇ ZORLAMA: expo-speech-recognition'ın stop() (nazikçe
 // bitir, final sonucu DÖNDÜR) ve abort() (iptal et, sonuç DÖNDÜRME) diye iki ayrı
 // fonksiyonu var. Bazı Android/OEM (canlı testte Xiaomi/MIUI'de doğrulandı) konuşma
@@ -137,7 +136,13 @@ export function useSurekliDinleme(
     onayKorumaTimer: null as ReturnType<typeof setTimeout> | null,
     sonInterim:      '', // en son ara (interim) transkript — bkz. sessizlikTimerKur notu
     onayOkunuyor:    false, // "Hey Pera" onay ifadesi ("Buyurun" vb.) şu an TTS ile çalıyor mu
-    sonSoylenenMetin: '', // PERA'nın şu an (veya en son) söylediği tam metin — içerik bazlı yankı tespiti için
+    // PERA'nın son söylediği METİNLER (son 3) — tanıma oturumu kesintisiz biriktirdiği
+    // için yankı transkripti art arda çalınan İKİ ifadeyi ("Bakıyorum bir saniye" +
+    // cevabın kendisi) TEK metin olarak içerebiliyor; yalnızca son söylenenle
+    // karşılaştırmak benzerlik oranını düşürüp filtreyi kaçırtıyordu (canlı testte
+    // barge-in'in yanlış tetiklenmesinin nedeni buydu). Artık son birkaç söylenen
+    // birleştirilerek karşılaştırılır.
+    sonSoylenenler:  [] as string[],
     sonSoylenenBitisMs: 0, // PERA'nın konuşmayı bitirdiği zaman — YANKI_PENCERE_MS penceresi bunun üzerinden hesaplanır
     durum:           'kapali' as DinlemeDurum, // React state'in senkron okunabilir aynası (event handler'lar için)
   });
@@ -206,11 +211,13 @@ export function useSurekliDinleme(
   }, []);
 
   // PERA konuşmaya BAŞLARKEN tam metinle (metin), BİTİRİNCE null ile çağrılır —
-  // null çağrısı sadece bitiş zamanını damgalar (sonSoylenenMetin öylece kalır,
+  // null çağrısı sadece bitiş zamanını damgalar (geçmiş öylece kalır,
   // YANKI_PENCERE_MS boyunca hâlâ karşılaştırma için kullanılabilsin diye silinmez).
   const konusulanMetniAyarla = useCallback((metin: string | null) => {
     if (metin !== null) {
-      r.current.sonSoylenenMetin = metin;
+      const liste = r.current.sonSoylenenler;
+      liste.push(metin);
+      if (liste.length > 3) liste.shift();
     } else {
       r.current.sonSoylenenBitisMs = Date.now();
     }
@@ -362,28 +369,42 @@ export function useSurekliDinleme(
     }
 
     // İÇERİK BAZLI YANKI TESPİTİ: PERA konuşuyorsa YA DA yakın zamanda konuşmayı
-    // bitirdiyse (YANKI_PENCERE_MS), tanınan metin PERA'nın söylediğiyle örtüşüyorsa
-    // bu kesinlikle cihazın kendi sesini duyması — süre sabitlerinden bağımsız,
-    // içeriğe dayalı olduğu için çok daha güvenilir (bkz. YANKI_PENCERE_MS notu).
+    // bitirdiyse (YANKI_PENCERE_MS), tanınan metin PERA'nın söyledikleriyle (son
+    // birkaçının birleşimi — bkz. sonSoylenenler notu) örtüşüyorsa bu kesinlikle
+    // cihazın kendi sesini duyması — süre sabitlerinden bağımsız, içeriğe dayalı
+    // olduğu için çok daha güvenilir (bkz. YANKI_PENCERE_MS notu).
     const yakinZamandaKonustu = Date.now() - st.sonSoylenenBitisMs < YANKI_PENCERE_MS;
-    if ((st.peraKonusuyorMu || yakinZamandaKonustu) && metinYankiMi(temiz, st.sonSoylenenMetin)) {
+    if ((st.peraKonusuyorMu || yakinZamandaKonustu) && metinYankiMi(temiz, st.sonSoylenenler.join(' '))) {
       console.log('[PERA-SR] içerik bazlı yankı tespit edildi, yok sayıldı:', JSON.stringify(temiz));
       return;
     }
 
-    // BARGE-IN: PERA konuşurken gelen yeterince uzun bir final sonuç, wake-word
-    // ARANMADAN doğrudan kesinti + yeni komut sayılır (ChatGPT'deki "konuşarak
-    // susturma" mantığı). Kısa/tek kelimelik sonuçlar (muhtemelen PERA'nın kendi
-    // sesinin mikrofona karışması/yankı) YOK SAYILIR.
+    // BARGE-IN — SADECE WAKE-WORD İLE: PERA konuşurken araya girmek için sözün
+    // "pera" içermesi ŞART ("Pera dur", "Pera şu haftaki siparişler..." gibi).
+    // Eskiden yeterince uzun HER söz kesinti sayılıyordu; ama AEC olmadığından
+    // PERA'nın kendi cevabının yankısı da "yeterince uzun" oluyor ve içerik
+    // filtresi (STT bozulmaları: "yedi"↔"7", kelime kaymaları) %100 yakalayamıyor —
+    // canlı testte PERA kendi cevabını kendine soru olarak sordu. Artık TTS çıktısı
+    // "pera" kelimesini HİÇ içermiyor (ttsMetnHazirla ayıklıyor), dolayısıyla yankı
+    // bu kapıdan fiziksel olarak geçemez. Sessiz durdurma için ekrandaki
+    // "PERA konuşuyor — durdurmak için dokun" çubuğu da duruyor.
     if (st.peraKonusuyorMu) {
-      const kelimeSayisi = temiz.split(/\s+/).filter(Boolean).length;
-      if (kelimeSayisi >= KESINTI_MIN_KELIME) {
-        console.log('[PERA-SR] BARGE-IN tetiklendi:', JSON.stringify(temiz));
+      const { wake, komut } = wakeAyikla(temiz);
+      if (wake && komut) {
+        console.log('[PERA-SR] BARGE-IN (wake ile) tetiklendi:', JSON.stringify(komut));
         onKesintiRef.current?.();
         wakeTemizle();
         setDur('isleniyor');
-        setSonTranscript(`▶ ${temiz}`);
-        onSoruRef.current(temiz);
+        setSonTranscript(`▶ ${komut}`);
+        onSoruRef.current(komut);
+      } else if (wake) {
+        // "Pera" / "Pera dur" — sadece sustur, yeni soru bekle
+        console.log('[PERA-SR] BARGE-IN: sustur komutu');
+        onKesintiRef.current?.();
+        wakeAktifYap();
+        setSonTranscript('Dinliyorum...');
+      } else {
+        console.log('[PERA-SR] PERA konuşurken wake\'siz söz yok sayıldı:', JSON.stringify(temiz));
       }
       return;
     }
@@ -450,7 +471,7 @@ export function useSurekliDinleme(
       // metinle örtüşen ara sonuçlar ne gösterilir ne de sessizlik sayacını besler.
       const st = r.current;
       const yankiSupheli = (st.peraKonusuyorMu || Date.now() - st.sonSoylenenBitisMs < YANKI_PENCERE_MS)
-        && metinYankiMi(transcript, st.sonSoylenenMetin);
+        && metinYankiMi(transcript, st.sonSoylenenler.join(' '));
       if (yankiSupheli) {
         console.log('[PERA-SR] yankı şüpheli ara sonuç gizlendi:', JSON.stringify(transcript));
         return;
