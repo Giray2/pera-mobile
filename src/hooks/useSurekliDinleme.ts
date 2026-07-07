@@ -180,15 +180,24 @@ export function useSurekliDinleme(
     }, sure);
   }, [wakeTimerTemizle]);
 
+  // OTURUM TAZELEME: tanıma oturumu kesintisiz olduğu için PERA konuşurken
+  // duyulan yankı da aynı transkripte birikir; kullanıcı hemen ardından konuşursa
+  // yankı + gerçek soru TEK final metin olarak gider (canlı testte kullanıcı
+  // baloncuğunda PERA'nın kendi cevabının da göründüğü ekran görüntüsüyle
+  // doğrulandı). Her tur sınırında (PERA cevabını bitirince / bir komut
+  // gönderilince) oturum abort edilip yeniden başlatılır — ChatGPT'nin tur
+  // mantığı: her soru temiz bir transkriptle başlar. (İleri referans: içindeki
+  // yardımcılar aşağıda tanımlandığından ref üzerinden bağlanıyor.)
+  const oturumTazeleRef = useRef<() => void>(() => {});
+
   // KONUŞMA MODU: dışarıdan (ChatScreen, PERA'nın cevabı bitince) çağrılır — kullanıcı
   // bir sonraki soru için "pera" demek ZORUNDA KALMAZ, 18 saniye içinde doğrudan sorabilir.
   const konusmaModunuAc = useCallback(() => {
+    // Önce oturumu tazele — PERA konuşurken biriken yankı transkripti atılır,
+    // kullanıcının devam sorusu temiz sayfayla yakalanır.
+    oturumTazeleRef.current();
     wakeAktifYap(KONUSMA_MODU_SURESI);
     setSonTranscript('Dinliyorum, sorabilirsiniz...');
-    // Dinleyici artık soru-cevap arasında hiç abort edilmiyor (bkz. ChatScreen), bu
-    // yüzden native 'start' event'i tekrar tetiklenip durumu 'bekliyor'a döndürmüyor
-    // — önceki cevabın 'isleniyor' durumunda ekranda takılı kalmaması için burada
-    // elle sıfırlanıyor.
     setDur('bekliyor');
   }, [wakeAktifYap, setDur]);
 
@@ -353,6 +362,17 @@ export function useSurekliDinleme(
     }, gecikme);
   }, []);
 
+  // bkz. oturumTazeleRef tanımındaki not — tur sınırında transkripti sıfırlar.
+  oturumTazeleRef.current = () => {
+    sessizlikTimerTemizle();
+    r.current.sonInterim = '';
+    try { ExpoSpeechRecognitionModule.abort(); } catch {}
+    // abort sonrası 'end' event'i planlaRestart'ı zaten çağırır; ama oturum o an
+    // zaten kapalıysa (end gelmeyecekse) restart'ı burada da garanti et — timer
+    // tabanlı olduğu için çift çağrı güvenli (öncekini iptal eder).
+    planlaRestart();
+  };
+
   // ── Final sonuç işleme ─────────────────────────────────────────────────────
   const sonucIsleRef = useRef<((metin: string) => void) | undefined>(undefined);
   sonucIsleRef.current = (metin: string) => {
@@ -397,6 +417,7 @@ export function useSurekliDinleme(
         setDur('isleniyor');
         setSonTranscript(`▶ ${komut}`);
         onSoruRef.current(komut);
+        oturumTazeleRef.current();
       } else if (wake) {
         // "Pera" / "Pera dur" — sadece sustur, yeni soru bekle
         console.log('[PERA-SR] BARGE-IN: sustur komutu');
@@ -417,16 +438,19 @@ export function useSurekliDinleme(
       setDur('isleniyor');
       setSonTranscript(`▶ ${komut}`);
       onSoruRef.current(komut);
+      oturumTazeleRef.current();
     } else if (wake && !komut) {
       wakeAktifYap();
       const ifade = WAKE_ONAY_IFADELERI[Math.floor(Math.random() * WAKE_ONAY_IFADELERI.length)];
       setSonTranscript(ifade);
       onWakeTetiklendiRef.current?.(ifade);
+      oturumTazeleRef.current();
     } else if (st.wakeAktif) {
       wakeTemizle();
       setDur('isleniyor');
       setSonTranscript(`▶ ${temiz}`);
       onSoruRef.current(temiz);
+      oturumTazeleRef.current();
     } else {
       setSonTranscript(`"${temiz}" (pera yok)`);
     }
