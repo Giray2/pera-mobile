@@ -11,5 +11,7 @@ export const ENV = {
   // true yapılırsa release build'de de console.log çalışır (adb logcat /
   // idevicesyslog ile canlı cihaz teşhisi için) — normalde kapalı: 36 adet
   // tanı logu her tanıma ara-sonucunda string üretip performansı yiyordu.
-  DEBUG_LOG: false,
+  // GEÇİCİ AÇIK (2026-07-08): "kendi sesini duyuyor" raporu üzerine teşhis için —
+  // ses hattı stabil doğrulanınca false'a çekilecek.
+  DEBUG_LOG: true,
 };

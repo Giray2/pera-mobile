@@ -245,16 +245,20 @@ export default function ChatScreen() {
     const zamanAsimindaBitir = () => {
       if (cagriId === sesliOkuIdRef.current) bitti();
     };
-    // maksimum 30 sn sonra her durumda sıfırla — cihaz TTS'e düşüldüğünde de
-    // (aşağıda) yeniden kurulur, tek bir "toplam konuşma" süresi garanti edilir.
-    konusuyorTimerRef.current = setTimeout(zamanAsimindaBitir, 30000);
+    // GÜVENLİK ZAMANLAYICISI METİN UZUNLUĞUNA GÖRE ÖLÇEKLENİR (kritik düzeltme,
+    // canlı hata): sabit 30sn'lik eski değer, pareto raporu gibi UZUN okumalarda
+    // (60-90sn) TTS daha konuşurken 'bitti' sanıp mikrofonu geri açıyordu — PERA
+    // raporun kalanını okurken kendi sesini duymaya başlıyordu. Türkçe TTS ~12-15
+    // karakter/sn okur; karakter başına 90ms + 15sn tampon, 30sn taban, 180sn tavan.
+    const konusmaZamanAsimiMs = Math.min(180_000, Math.max(30_000, metinHazir.length * 90 + 15_000));
+    konusuyorTimerRef.current = setTimeout(zamanAsimindaBitir, konusmaZamanAsimiMs);
 
     const buCagriGecerliMi = () => cagriId === sesliOkuIdRef.current;
 
     const cihazaDus = () => {
       if (!buCagriGecerliMi()) return; // sesDurdur/yeni bir sesliOku çağrısı bu çağrıyı zaten geçersiz kıldı
       if (konusuyorTimerRef.current) clearTimeout(konusuyorTimerRef.current);
-      konusuyorTimerRef.current = setTimeout(zamanAsimindaBitir, 30000);
+      konusuyorTimerRef.current = setTimeout(zamanAsimindaBitir, konusmaZamanAsimiMs);
       sesCihazdaOku(metinHazir, bitti);
     };
 
