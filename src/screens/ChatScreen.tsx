@@ -38,6 +38,22 @@ const BEKLETME_IFADELERI = [
 ];
 
 function ttsMetnHazirla(metin: string): string {
+  // PARETO RAPORU İSTİSNASI (kullanıcı isteği — SADECE pareto raporlarında):
+  // tablo satırları sesli OKUNMAZ (satır satır tablo dinlemek anlamsız), ama
+  // yönetici özeti + "Bulgular" bölümündeki yorum satırları TAM okunur; bu
+  // yüzden karakter limiti de bu durumda geniş tutulur. Diğer tüm cevaplar
+  // için davranış değişmez (kısa özet + 420 karakter sınırı).
+  const paretoRaporuMu = metin.includes('### Pareto');
+  let limit = 420;
+  if (paretoRaporuMu) {
+    limit = 1400;
+    metin = metin
+      .split('\n')
+      .filter((s) => !s.trim().startsWith('|'))          // tablo satırlarını atla
+      .filter((s) => !s.includes('### Pareto'))          // tablo başlığını atla
+      .join('\n')
+      .replace(/###\s*Bulgular/gi, 'Bulgular:');
+  }
   let t = metin
     // EMOJİ TEMİZLE: TTS motoru (özellikle iOS) emojiyi görünce açıklamasını
     // ("çizgi grafiği", "onay işareti" vb.) sesli okuyor — TTS'e hiç gitmemeli.
@@ -55,9 +71,11 @@ function ttsMetnHazirla(metin: string): string {
     // okutuyordu — kaldırıldı, sadece yukarıdaki bilinen kısaltmalar özel işlenir.
     .replace(/\s{2,}/g, ' ')
     .trim();
-  if (t.length <= 420) return t;
-  const nokta = t.indexOf('. ', 80);
-  return nokta > 0 && nokta < 420 ? t.substring(0, nokta + 1) : t.substring(0, 420) + '...';
+  if (t.length <= limit) return t;
+  // Limitten ÖNCEKİ SON cümle sonunda kes (eski mantık 80. karakterden sonraki İLK
+  // cümlede kesiyordu — uzun cevaplarda her şeyi tek cümleye indiriyordu).
+  const nokta = t.lastIndexOf('. ', limit);
+  return nokta > 80 ? t.substring(0, nokta + 1) : t.substring(0, limit) + '...';
 }
 
 interface DrawerProps {

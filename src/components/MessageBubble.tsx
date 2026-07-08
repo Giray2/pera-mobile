@@ -207,6 +207,14 @@ const markdownStil = {
   ordered_list: { marginVertical: 2 },
   list_item: { marginVertical: 1 },
   paragraph: { marginTop: 0, marginBottom: 4 },
+  heading3: { color: '#4fc3f7', fontSize: 15, fontWeight: '700' as const, marginTop: 10, marginBottom: 6 },
+  // Pareto vb. raporlardaki markdown tabloları: koyu temaya uygun çerçeve,
+  // sıkı ama okunur hücreler, başlık satırı ayrışsın (varsayılan stil çok dağınıktı).
+  table: { borderWidth: 1, borderColor: '#37474f', borderRadius: 6, marginVertical: 6 },
+  thead: { backgroundColor: '#22303c' },
+  th: { padding: 6, fontSize: 11.5, fontWeight: '700' as const, color: '#90caf9' },
+  tr: { borderBottomWidth: 1, borderColor: '#2b3a46', flexDirection: 'row' as const },
+  td: { padding: 6, fontSize: 11.5, color: '#eceff1' },
 };
 
 const s = StyleSheet.create({
